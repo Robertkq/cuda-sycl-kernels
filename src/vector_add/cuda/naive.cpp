@@ -77,8 +77,9 @@ int main(int argc, char **argv) {
 
     return static_cast<uint64_t>(milliseconds * 1e6);
   };
-
-  bench.run(work);
+  const uint64_t bytesPerIteration =
+      3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
+  bench.run(work, bytesPerIteration);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

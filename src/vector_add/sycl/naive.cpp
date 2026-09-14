@@ -56,7 +56,9 @@ int main(int argc, char **argv) {
                sycl::info::event_profiling::command_start>();
   };
 
-  bench.run(work);
+  const uint64_t bytesPerIteration =
+      3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
+  bench.run(work, bytesPerIteration);
 
   sycl::free(lhs, q);
   sycl::free(rhs, q);
