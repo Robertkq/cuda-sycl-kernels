@@ -13,7 +13,3 @@ target_include_directories(benchmark PUBLIC
 target_link_libraries(benchmark PRIVATE
     CLI11::CLI11
 )
-
-if(TBB_LIBRARY)
-  target_link_libraries(benchmark PUBLIC ${TBB_LIBRARY})
-endif()

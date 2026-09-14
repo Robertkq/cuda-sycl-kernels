@@ -6,6 +6,11 @@
 - CUDA Toolkit (`nvcc` on PATH) — for the CUDA targets
 - An NVIDIA GPU and driver — to run either backend
 - A SYCL compiler with the CUDA backend enabled — for the SYCL targets
+- CLI11 — not packaged on most distros, build and install it yourself:
+
+      git clone https://github.com/CLIUtils/CLI11.git
+      cmake -B CLI11/build -S CLI11 -DCLI11_BUILD_TESTS=OFF
+      cmake --build CLI11/build --target install
 
 ## SYCL compiler
 

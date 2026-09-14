@@ -2,7 +2,6 @@
 
 #include <CLI/CLI.hpp>
 #include <cstdlib>
-#include <execution>
 #include <iostream>
 #include <map>
 #include <numeric>
@@ -25,7 +24,8 @@ Benchmark::Benchmark(int argc, char **argv) : _impl(std::make_unique<Impl>()) {
       ->default_val(2);
   _impl->app
       .add_option("-c,--count", _impl->count, "Number of elements to process")
-      ->default_val(1 << 27);
+      ->default_val(1 << 27)
+      ->check(CLI::PositiveNumber);
   const std::map<std::string, VerifyMode> verifyModeChoices{
       {"None", VerifyMode::None},
       {"Semi", VerifyMode::Semi},
@@ -94,12 +94,16 @@ void Benchmark::printSummary() {
     return;
   }
 
-  std::sort(std::execution::par, records.begin(), records.end());
+  std::sort(records.begin(), records.end());
   std::cout << "Benchmark summary:\n";
   std::cout << "  Min time: " << records.front() << " ns\n";
   std::cout << "  Max time: " << records.back() << " ns\n";
-  uint64_t sum = std::reduce(std::execution::par, records.begin(),
-                             records.end(), uint64_t(0));
+  uint64_t sum = std::reduce(records.begin(), records.end(), uint64_t(0));
   std::cout << "  Avg time: " << sum / records.size() << " ns\n";
-  std::cout << " Median time: " << records[records.size() / 2] << " ns\n";
+
+  size_t mid = records.size() / 2;
+  uint64_t median = records.size() % 2 == 0
+                         ? std::midpoint(records[mid - 1], records[mid])
+                         : records[mid];
+  std::cout << "  Median time: " << median << " ns\n";
 }

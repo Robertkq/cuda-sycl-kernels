@@ -3,6 +3,7 @@
 #include <benchmark.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -16,11 +17,18 @@ int main(int argc, char **argv) {
   float *lhs = sycl::malloc_device<float>(bench.count(), q);
   float *rhs = sycl::malloc_device<float>(bench.count(), q);
   float *out = sycl::malloc_device<float>(bench.count(), q);
+  if (!lhs || !rhs || !out) {
+    std::cerr << "Device allocation failed\n";
+    sycl::free(lhs, q);
+    sycl::free(rhs, q);
+    sycl::free(out, q);
+    std::exit(EXIT_FAILURE);
+  }
   auto eventLhs = q.fill<float>(lhs, lhsValue, bench.count());
   auto eventRhs = q.fill<float>(rhs, rhsValue, bench.count());
 
-  eventLhs.wait();
-  eventRhs.wait();
+  eventLhs.wait_and_throw();
+  eventRhs.wait_and_throw();
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
@@ -28,11 +36,12 @@ int main(int argc, char **argv) {
                      [=](sycl::id<1> idx) { out[idx] = lhs[idx] + rhs[idx]; });
     });
 
-    event.wait();
+    event.wait_and_throw();
 
     if (verify) {
       std::vector<float> hostOut(bench.count());
-      q.memcpy(hostOut.data(), out, bench.count() * sizeof(float)).wait();
+      q.memcpy(hostOut.data(), out, bench.count() * sizeof(float))
+          .wait_and_throw();
       if (!std::all_of(
               hostOut.begin(), hostOut.end(),
               [expectedValue](float v) { return v == expectedValue; })) {

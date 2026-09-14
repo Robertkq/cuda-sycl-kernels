@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -34,7 +35,8 @@ int main(int argc, char **argv) {
   Benchmark bench(argc, argv);
 
   int threads = 256;
-  int blocks = (bench.count() + threads - 1) / threads;
+  int blocks = static_cast<int>(
+      (static_cast<uint64_t>(bench.count()) + threads - 1) / threads);
 
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
