@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <execution>
 #include <iostream>
+#include <map>
 #include <numeric>
 
 struct Benchmark::Impl {
@@ -12,17 +13,29 @@ struct Benchmark::Impl {
   uint32_t iterations = 100;
   uint32_t warmups = 5;
   uint32_t count = 1 << 27;
-  bool verify = false;
+  VerifyMode verify = VerifyMode::None;
 };
 
 Benchmark::Benchmark(int argc, char **argv) : _impl(std::make_unique<Impl>()) {
-  _impl->app.add_option("-i,--iterations", _impl->iterations, "Number of iterations")
+  _impl->app
+      .add_option("-i,--iterations", _impl->iterations, "Number of iterations")
       ->default_val(10);
-  _impl->app.add_option("-w,--warmups", _impl->warmups, "Number of warmup iterations")
+  _impl->app
+      .add_option("-w,--warmups", _impl->warmups, "Number of warmup iterations")
       ->default_val(2);
-  _impl->app.add_option("-c,--count", _impl->count, "Number of elements to process")
+  _impl->app
+      .add_option("-c,--count", _impl->count, "Number of elements to process")
       ->default_val(1 << 27);
-  _impl->app.add_flag("-v,--verify", _impl->verify, "Verify results");
+  const std::map<std::string, VerifyMode> verifyModeChoices{
+      {"None", VerifyMode::None},
+      {"Semi", VerifyMode::Semi},
+      {"Full", VerifyMode::Full},
+  };
+  _impl->app
+      .add_option("-v,--verify", _impl->verify,
+                   "Verify results: None, Semi (every 10th iteration), Full "
+                   "(every iteration)")
+      ->transform(CLI::CheckedTransformer(verifyModeChoices, CLI::ignore_case));
 
   try {
     _impl->app.parse(argc, argv);
@@ -30,27 +43,51 @@ Benchmark::Benchmark(int argc, char **argv) : _impl(std::make_unique<Impl>()) {
     std::exit(_impl->app.exit(e));
   }
 
-  print_info();
+  printInfo();
 }
 
-Benchmark::~Benchmark() { print_summary(); }
+Benchmark::~Benchmark() { printSummary(); }
 
-void Benchmark::add_record(uint64_t ns) { _impl->records.push_back(ns); }
+void Benchmark::addRecord(uint64_t ns) { _impl->records.push_back(ns); }
 
 uint32_t Benchmark::iterations() const { return _impl->iterations; }
 uint32_t Benchmark::warmups() const { return _impl->warmups; }
 uint32_t Benchmark::count() const { return _impl->count; }
-bool Benchmark::verify() const { return _impl->verify; }
+VerifyMode Benchmark::verify() const { return _impl->verify; }
 
-void Benchmark::print_info() const {
+std::string Benchmark::verifyModeToString(VerifyMode mode) const {
+  switch (mode) {
+  case VerifyMode::None:
+    return "None";
+  case VerifyMode::Semi:
+    return "Semi";
+  case VerifyMode::Full:
+    return "Full";
+  }
+  return "Unknown";
+}
+
+bool Benchmark::shouldVerify(uint32_t i) const {
+  switch (_impl->verify) {
+  case VerifyMode::None:
+    return false;
+  case VerifyMode::Semi:
+    return i % 10 == 0;
+  case VerifyMode::Full:
+    return true;
+  }
+  return false;
+}
+
+void Benchmark::printInfo() const {
   std::cout << "Benchmark info:\n";
   std::cout << "  Iterations: " << _impl->iterations << "\n";
   std::cout << "  Warmups: " << _impl->warmups << "\n";
   std::cout << "  Count: " << _impl->count << "\n";
-  std::cout << "  Verify: " << (_impl->verify ? "true" : "false") << "\n";
+  std::cout << "  Verify: " << verifyModeToString(_impl->verify) << "\n";
 }
 
-void Benchmark::print_summary() {
+void Benchmark::printSummary() {
   auto &records = _impl->records;
   if (records.empty()) {
     std::cout << "No records to summarize.\n";
