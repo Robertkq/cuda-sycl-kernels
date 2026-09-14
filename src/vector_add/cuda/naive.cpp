@@ -7,13 +7,13 @@
 #include <iostream>
 #include <vector>
 
-#define CUDA_CHECK(expr)                                                     \
-  do {                                                                       \
-    cudaError_t err = (expr);                                                \
-    if (err != cudaSuccess) {                                                \
-      std::cerr << cudaGetErrorString(err) << "\n";                          \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CUDA_CHECK(expr)                                                       \
+  do {                                                                         \
+    cudaError_t err = (expr);                                                  \
+    if (err != cudaSuccess) {                                                  \
+      std::cerr << cudaGetErrorString(err) << "\n";                            \
+      std::exit(1);                                                            \
+    }                                                                          \
   } while (0)
 
 __global__ void fill(float *data, float value, size_t count) {
@@ -64,9 +64,10 @@ int main(int argc, char **argv) {
     if (verify) {
       std::vector<float> hostOut(bench.count());
       CUDA_CHECK(cudaMemcpy(hostOut.data(), out, bench.count() * sizeof(float),
-                             cudaMemcpyDeviceToHost));
-      if (!std::all_of(hostOut.begin(), hostOut.end(),
-                        [expectedValue](float v) { return v == expectedValue; })) {
+                            cudaMemcpyDeviceToHost));
+      if (!std::all_of(
+              hostOut.begin(), hostOut.end(),
+              [expectedValue](float v) { return v == expectedValue; })) {
         std::cerr << "Verification failed!\n";
         std::exit(EXIT_FAILURE);
       }

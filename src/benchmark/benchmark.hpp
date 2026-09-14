@@ -1,11 +1,17 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <memory>
 #include <random>
 #include <string>
 #include <vector>
+
+template <typename Func>
+concept Benchmarkable = requires(Func f) {
+  { f(bool{}) } -> std::same_as<uint64_t>;
+};
 
 enum class VerifyMode : uint8_t { None, Semi, Full };
 
@@ -19,7 +25,7 @@ public:
   uint32_t count() const;
   VerifyMode verify() const;
 
-  template <typename Func> void run(Func &&func) {
+  template <Benchmarkable Func> void run(Func &&func) {
     for (uint32_t i = 0; i < warmups(); ++i) {
       func(false);
     }

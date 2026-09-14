@@ -33,8 +33,8 @@ Benchmark::Benchmark(int argc, char **argv) : _impl(std::make_unique<Impl>()) {
   };
   _impl->app
       .add_option("-v,--verify", _impl->verify,
-                   "Verify results: None, Semi (every 10th iteration), Full "
-                   "(every iteration)")
+                  "Verify results: None, Semi (every 10th iteration), Full "
+                  "(every iteration)")
       ->transform(CLI::CheckedTransformer(verifyModeChoices, CLI::ignore_case));
 
   try {
