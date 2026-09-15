@@ -7,6 +7,8 @@
 #include <iostream>
 #include <vector>
 
+class VectorAddKernel;
+
 int main(int argc, char **argv) {
   Benchmark bench(argc, argv);
 
@@ -34,8 +36,6 @@ int main(int argc, char **argv) {
 
   eventLhs.wait_and_throw();
   eventRhs.wait_and_throw();
-
-  class VectorAddKernel;
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
