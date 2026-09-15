@@ -181,8 +181,8 @@ void Benchmark::printSummary() {
   std::cout << "()\tMedian time:\t" << formatTime(medianTime) << "\n";
 
   if (_impl->bytesPerIteration > 0) {
-    double minBandwidth = bandwidthGbps(minTime);
-    double maxBandwidth = bandwidthGbps(maxTime);
+    double maxBandwidth = bandwidthGbps(minTime);
+    double minBandwidth = bandwidthGbps(maxTime);
     double medianBandwidth = bandwidthGbps(medianTime);
 
     double meanBandwidth = 0.0;
@@ -193,10 +193,10 @@ void Benchmark::printSummary() {
 
     std::cout << "\n";
     std::cout << std::fixed << std::setprecision(1);
-    std::cout << color(Color::Green) << "(Best)\tBandwidth (min):\t"
-              << minBandwidth << " GB/s" << color(Color::Reset) << "\n";
-    std::cout << color(Color::Red) << "(Worst)\tBandwidth (max):\t"
+    std::cout << color(Color::Green) << "(Best)\tBandwidth (max):\t"
               << maxBandwidth << " GB/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Red) << "(Worst)\tBandwidth (min):\t"
+              << minBandwidth << " GB/s" << color(Color::Reset) << "\n";
     std::cout << "()\tBandwidth (mean):\t" << meanBandwidth << " GB/s\n";
     std::cout << "()\tBandwidth (median):\t" << medianBandwidth << " GB/s\n";
   }
