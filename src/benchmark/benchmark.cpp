@@ -173,10 +173,10 @@ void Benchmark::printSummary() {
                             : records[mid];
 
   std::cout << "Benchmark summary:\n";
-  std::cout << color(Color::Green) << "(Best)\tMin time:\t" << formatTime(minTime)
-             << color(Color::Reset) << "\n";
-  std::cout << color(Color::Red) << "(Worst)\tMax time:\t" << formatTime(maxTime)
-             << color(Color::Reset) << "\n";
+  std::cout << color(Color::Green) << "(Best)\tMin time:\t"
+            << formatTime(minTime) << color(Color::Reset) << "\n";
+  std::cout << color(Color::Red) << "(Worst)\tMax time:\t"
+            << formatTime(maxTime) << color(Color::Reset) << "\n";
   std::cout << "()\tAvg time:\t" << formatTime(avgTime) << "\n";
   std::cout << "()\tMedian time:\t" << formatTime(medianTime) << "\n";
 
@@ -193,12 +193,11 @@ void Benchmark::printSummary() {
 
     std::cout << "\n";
     std::cout << std::fixed << std::setprecision(1);
-    std::cout << color(Color::Green) << "(Best)\tBandwidth (min time):\t"
+    std::cout << color(Color::Green) << "(Best)\tBandwidth (min):\t"
               << minBandwidth << " GB/s" << color(Color::Reset) << "\n";
-    std::cout << color(Color::Red) << "(Worst)\tBandwidth (max time):\t"
+    std::cout << color(Color::Red) << "(Worst)\tBandwidth (max):\t"
               << maxBandwidth << " GB/s" << color(Color::Reset) << "\n";
     std::cout << "()\tBandwidth (mean):\t" << meanBandwidth << " GB/s\n";
-    std::cout << "()\tBandwidth (median time):\t" << medianBandwidth
-              << " GB/s\n";
+    std::cout << "()\tBandwidth (median):\t" << medianBandwidth << " GB/s\n";
   }
 }
