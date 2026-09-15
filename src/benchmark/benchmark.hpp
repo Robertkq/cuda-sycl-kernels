@@ -14,6 +14,8 @@ concept Benchmarkable = requires(Func f) {
 };
 
 enum class VerifyMode : uint8_t { None, Semi, Full };
+enum class TimeUnit : uint8_t { Ns, Us, Ms };
+enum class Color : uint8_t { Reset, Red, Green };
 
 class Benchmark {
 public:
@@ -25,7 +27,10 @@ public:
   uint32_t count() const;
   VerifyMode verify() const;
 
-  template <Benchmarkable Func> void run(Func &&func) {
+  template <Benchmarkable Func>
+  void run(Func &&func, uint64_t bytesPerIteration) {
+    setBytesPerIteration(bytesPerIteration);
+
     for (uint32_t i = 0; i < warmups(); ++i) {
       func(false);
     }
@@ -61,7 +66,12 @@ private:
 
   void addRecord(uint64_t ns);
   std::string verifyModeToString(VerifyMode mode) const;
+  std::string timeUnitToString(TimeUnit unit) const;
   bool shouldVerify(uint32_t i) const;
+  void setBytesPerIteration(uint64_t bytes);
+  double bandwidthGbps(uint64_t ns) const;
+  std::string formatTime(uint64_t ns) const;
+  std::string color(Color c) const;
 
 private:
   struct Impl;

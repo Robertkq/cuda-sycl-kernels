@@ -7,16 +7,23 @@
 #include <iostream>
 #include <vector>
 
+class VectorAddKernel;
+
 int main(int argc, char **argv) {
   Benchmark bench(argc, argv);
+
+  if (bench.count() % 4 != 0) {
+    std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
+    std::exit(EXIT_FAILURE);
+  }
 
   sycl::queue q({sycl::property::queue::enable_profiling()});
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
   constexpr float expectedValue = lhsValue + rhsValue;
-  float *lhs = sycl::malloc_device<float>(bench.count(), q);
-  float *rhs = sycl::malloc_device<float>(bench.count(), q);
-  float *out = sycl::malloc_device<float>(bench.count(), q);
+  float *lhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  float *rhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  float *out = sycl::aligned_alloc_device<float>(16, bench.count(), q);
   if (!lhs || !rhs || !out) {
     std::cerr << "Device allocation failed\n";
     sycl::free(lhs, q);
@@ -32,8 +39,13 @@ int main(int argc, char **argv) {
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
-      h.parallel_for(sycl::range<1>(bench.count()),
-                     [=](sycl::id<1> idx) { out[idx] = lhs[idx] + rhs[idx]; });
+      h.parallel_for<VectorAddKernel>(
+          sycl::range<1>(bench.count() / 4), [=](sycl::id<1> idx) {
+            auto lhs4 = reinterpret_cast<sycl::vec<float, 4> *>(lhs);
+            auto rhs4 = reinterpret_cast<sycl::vec<float, 4> *>(rhs);
+            auto out4 = reinterpret_cast<sycl::vec<float, 4> *>(out);
+            out4[idx] = lhs4[idx] + rhs4[idx];
+          });
     });
 
     event.wait_and_throw();

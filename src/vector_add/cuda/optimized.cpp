@@ -17,26 +17,33 @@
     }                                                                          \
   } while (0)
 
-__global__ void fill(float *data, float value, size_t count) {
+__global__ void fill(float4 *data, float value, size_t count) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < count) {
-    data[idx] = value;
+    data[idx] = make_float4(value, value, value, value);
   }
 }
 
-__global__ void vectorAdd(float *lhs, float *rhs, float *out, size_t count) {
+__global__ void vectorAdd(float4 *lhs, float4 *rhs, float4 *out, size_t count) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < count) {
-    out[idx] = lhs[idx] + rhs[idx];
+    float4 a = lhs[idx];
+    float4 b = rhs[idx];
+    out[idx] = make_float4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
   }
 }
 
 int main(int argc, char **argv) {
   Benchmark bench(argc, argv);
 
+  if (bench.count() % 4 != 0) {
+    std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
+    std::exit(EXIT_FAILURE);
+  }
+
   int threads = 256;
   int blocks = static_cast<int>(
-      (static_cast<uint64_t>(bench.count()) + threads - 1) / threads);
+      (static_cast<uint64_t>(bench.count() / 4) + threads - 1) / threads);
 
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
@@ -47,8 +54,10 @@ int main(int argc, char **argv) {
   CUDA_CHECK(cudaMalloc(&lhs, bench.count() * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&rhs, bench.count() * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&out, bench.count() * sizeof(float)));
-  fill<<<blocks, threads>>>(lhs, lhsValue, bench.count());
-  fill<<<blocks, threads>>>(rhs, rhsValue, bench.count());
+  fill<<<blocks, threads>>>(reinterpret_cast<float4 *>(lhs), lhsValue,
+                            bench.count() / 4);
+  fill<<<blocks, threads>>>(reinterpret_cast<float4 *>(rhs), rhsValue,
+                            bench.count() / 4);
 
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
@@ -56,7 +65,9 @@ int main(int argc, char **argv) {
 
   auto work = [&](bool verify) -> uint64_t {
     CUDA_CHECK(cudaEventRecord(start));
-    vectorAdd<<<blocks, threads>>>(lhs, rhs, out, bench.count());
+    vectorAdd<<<blocks, threads>>>(
+        reinterpret_cast<float4 *>(lhs), reinterpret_cast<float4 *>(rhs),
+        reinterpret_cast<float4 *>(out), bench.count() / 4);
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
 
