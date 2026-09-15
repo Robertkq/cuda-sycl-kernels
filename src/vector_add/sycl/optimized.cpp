@@ -19,9 +19,9 @@ int main(int argc, char **argv) {
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
   constexpr float expectedValue = lhsValue + rhsValue;
-  float *lhs = sycl::malloc_device<float>(bench.count(), q);
-  float *rhs = sycl::malloc_device<float>(bench.count(), q);
-  float *out = sycl::malloc_device<float>(bench.count(), q);
+  float *lhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  float *rhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  float *out = sycl::aligned_alloc_device<float>(16, bench.count(), q);
   if (!lhs || !rhs || !out) {
     std::cerr << "Device allocation failed\n";
     sycl::free(lhs, q);
