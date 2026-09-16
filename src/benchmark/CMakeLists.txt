@@ -1,15 +1,17 @@
 
 find_package(CLI11 REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 add_library(benchmark STATIC
     benchmark.cpp
 )
 
-target_include_directories(benchmark PUBLIC 
+target_include_directories(benchmark PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/benchmark
 )
 
 target_link_libraries(benchmark PRIVATE
     CLI11::CLI11
+    nlohmann_json::nlohmann_json
 )

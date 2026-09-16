@@ -8,9 +8,9 @@
 #include <vector>
 
 int main(int argc, char **argv) {
-  Benchmark bench(argc, argv);
-
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  Benchmark bench(argc, argv,
+                  q.get_device().get_info<sycl::info::device::name>());
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
   constexpr float expectedValue = lhsValue + rhsValue;

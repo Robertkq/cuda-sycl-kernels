@@ -15,11 +15,12 @@ concept Benchmarkable = requires(Func f) {
 
 enum class VerifyMode : uint8_t { None, Semi, Full };
 enum class TimeUnit : uint8_t { Ns, Us, Ms };
-enum class Color : uint8_t { Reset, Red, Green };
+enum class Color : uint8_t { Reset, Red, Green, Yellow };
 
 class Benchmark {
 public:
-  Benchmark(int argc, char **argv);
+  // hardware must be non-empty; throws std::invalid_argument otherwise.
+  Benchmark(int argc, char **argv, const std::string &hardware);
   ~Benchmark();
 
   uint32_t iterations() const;
@@ -63,6 +64,10 @@ public:
 private:
   void printInfo() const;
   void printSummary();
+  void printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
+                 uint64_t medianTime, double maxBandwidth,
+                 double minBandwidth, double meanBandwidth,
+                 double medianBandwidth) const;
 
   void addRecord(uint64_t ns);
   std::string verifyModeToString(VerifyMode mode) const;
