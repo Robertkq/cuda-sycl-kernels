@@ -32,7 +32,12 @@ __global__ void vectorAdd(float *lhs, float *rhs, float *out, size_t count) {
 }
 
 int main(int argc, char **argv) {
-  Benchmark bench(argc, argv);
+  int device = 0;
+  CUDA_CHECK(cudaGetDevice(&device));
+  cudaDeviceProp prop;
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+
+  Benchmark bench(argc, argv, prop.name);
 
   int threads = 256;
   int blocks = static_cast<int>(

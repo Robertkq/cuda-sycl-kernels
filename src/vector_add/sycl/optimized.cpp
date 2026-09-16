@@ -10,14 +10,15 @@
 class VectorAddKernel;
 
 int main(int argc, char **argv) {
-  Benchmark bench(argc, argv);
+  sycl::queue q({sycl::property::queue::enable_profiling()});
+  Benchmark bench(argc, argv,
+                  q.get_device().get_info<sycl::info::device::name>());
 
   if (bench.count() % 4 != 0) {
     std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
     std::exit(EXIT_FAILURE);
   }
 
-  sycl::queue q({sycl::property::queue::enable_profiling()});
   constexpr float lhsValue = 1.0f;
   constexpr float rhsValue = 2.0f;
   constexpr float expectedValue = lhsValue + rhsValue;

@@ -34,7 +34,12 @@ __global__ void vectorAdd(float4 *lhs, float4 *rhs, float4 *out, size_t count) {
 }
 
 int main(int argc, char **argv) {
-  Benchmark bench(argc, argv);
+  int device = 0;
+  CUDA_CHECK(cudaGetDevice(&device));
+  cudaDeviceProp prop;
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+
+  Benchmark bench(argc, argv, prop.name);
 
   if (bench.count() % 4 != 0) {
     std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
