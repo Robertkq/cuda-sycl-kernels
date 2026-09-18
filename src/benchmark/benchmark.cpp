@@ -56,7 +56,8 @@ Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
       .add_option("-v,--verify", _impl->verify,
                   "Verify results: None, Semi (every 10th iteration), Full "
                   "(every iteration)")
-      ->transform(CLI::CheckedTransformer(verifyModeChoices, CLI::ignore_case));
+      ->transform(CLI::CheckedTransformer(verifyModeChoices, CLI::ignore_case))
+      ->default_val("Semi");
   const std::map<std::string, TimeUnit> timeUnitChoices{
       {"ns", TimeUnit::Ns},
       {"us", TimeUnit::Us},
@@ -68,7 +69,7 @@ Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
       ->transform(CLI::CheckedTransformer(timeUnitChoices, CLI::ignore_case));
   _impl->app.add_flag("--no-color", _impl->noColor, "Disable colored output");
   _impl->app.add_flag("--json", _impl->json,
-                       "Write a JSON file containing the results");
+                      "Write a JSON file containing the results");
 
   try {
     _impl->app.parse(argc, argv);
@@ -78,7 +79,7 @@ Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
 
   if (_impl->json && _impl->timeUnit != TimeUnit::Ns) {
     std::cerr << "Warning: --time-unit is ignored with --json; JSON output "
-                  "always reports times in ns\n";
+                 "always reports times in ns\n";
   }
 
   printInfo();

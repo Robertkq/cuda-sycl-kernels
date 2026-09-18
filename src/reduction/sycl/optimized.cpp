@@ -2,6 +2,7 @@
 
 #include <benchmark.hpp>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -12,54 +13,52 @@ int main(int argc, char **argv) {
   constexpr float elementValue = 1.0f;
   const float expectedSum = elementValue * static_cast<float>(bench.count());
 
-  float *deviceVector = sycl::malloc_device<float>(bench.count(), q);
-  float *deviceSum = sycl::malloc_device<float>(1, q);
-  if (!deviceVector || !deviceSum) {
-    std::cerr << "Device allocation failed\n";
-    sycl::free(deviceVector, q);
-    sycl::free(deviceSum, q);
-    std::exit(EXIT_FAILURE);
-  }
-
-  q.fill<float>(deviceVector, elementValue, bench.count()).wait_and_throw();
-
   constexpr uint32_t workGroupSize = 256;
   const uint32_t count = bench.count();
   const uint32_t numGroups = (count + workGroupSize - 1) / workGroupSize;
   const sycl::nd_range<1> ndRange(sycl::range<1>(numGroups * workGroupSize),
                                   sycl::range<1>(workGroupSize));
 
+  float *deviceInputVector = sycl::malloc_device<float>(bench.count(), q);
+  float *deviceOutputVector = sycl::malloc_device<float>(numGroups, q);
+  float *deviceSum = sycl::malloc_device<float>(1, q);
+  if (!deviceInputVector || !deviceOutputVector || !deviceSum) {
+    std::cerr << "Device allocation failed\n";
+    sycl::free(deviceInputVector, q);
+    sycl::free(deviceOutputVector, q);
+    sycl::free(deviceSum, q);
+    std::exit(EXIT_FAILURE);
+  }
+
+  q.fill<float>(deviceInputVector, elementValue, bench.count())
+      .wait_and_throw();
+  q.fill<float>(deviceOutputVector, 0.0f, numGroups).wait_and_throw();
+
   auto work = [&](bool verify) -> uint64_t {
     // Reset the accumulator before each timed run
     q.fill<float>(deviceSum, 0.0f, 1).wait_and_throw();
 
     auto event = q.submit([&](sycl::handler &h) {
-      sycl::local_accessor<float, 1> groupSum(sycl::range<1>(1), h);
+      sycl::local_accessor<float, 1> sdata(sycl::range<1>(workGroupSize), h);
 
       h.parallel_for(ndRange, [=](sycl::nd_item<1> item) {
         const size_t globalId = item.get_global_id(0);
         const size_t localId = item.get_local_id(0);
-
-        if (localId == 0) {
-          groupSum[0] = 0.0f;
-        }
-        sycl::group_barrier(item.get_group());
-
         if (globalId < count) {
-          sycl::atomic_ref<float, sycl::memory_order::relaxed,
-                           sycl::memory_scope::work_group,
-                           sycl::access::address_space::local_space>
-              atomicGroupSum(groupSum[0]);
-          atomicGroupSum += deviceVector[globalId];
+          sdata[localId] = deviceInputVector[globalId];
+        } else {
+          sdata[localId] = 0.0f;
         }
-        sycl::group_barrier(item.get_group());
+        sycl::group_barrieri(item.get_group());
 
+        for (uint32_t stride = workGroupSize / 2; stride > 0; stride /= 2) {
+          if (localId < stride) {
+            sdata[localId] = sdata[localId + stride];
+          }
+          sycl::group_barrier(item.get_group());
+        }
         if (localId == 0) {
-          sycl::atomic_ref<float, sycl::memory_order::relaxed,
-                           sycl::memory_scope::device,
-                           sycl::access::address_space::global_space>
-              atomicSum(*deviceSum);
-          atomicSum += groupSum[0];
+          deviceOutputVector[item.get_group(0)] = sdata[0];
         }
       });
     });

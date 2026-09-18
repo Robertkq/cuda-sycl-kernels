@@ -1,5 +1,10 @@
 
 if(CMAKE_CUDA_COMPILER)
+  add_executable(reduction-naive-cuda cuda/naive.cpp)
+  set_source_files_properties(cuda/naive.cpp PROPERTIES LANGUAGE CUDA)
+  set_target_properties(reduction-naive-cuda PROPERTIES LINKER_LANGUAGE CUDA)
+  target_link_libraries(reduction-naive-cuda PUBLIC benchmark)
+  target_include_directories(reduction-naive-cuda PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 endif()
 
 if(CMAKE_CUDA_COMPILER)
@@ -13,4 +18,8 @@ if(SYCL_CUDA_AVAILABLE)
 endif()
 
 if(SYCL_CUDA_AVAILABLE)
+  add_executable(reduction-optimized-sycl sycl/optimized.cpp)
+  target_compile_options(reduction-optimized-sycl PRIVATE ${SYCL_CUDA_FLAGS})
+  target_link_options(reduction-optimized-sycl PRIVATE ${SYCL_CUDA_FLAGS} -Wl,--disable-new-dtags)
+  target_link_libraries(reduction-optimized-sycl PUBLIC benchmark)
 endif()
