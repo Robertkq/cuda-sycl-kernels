@@ -27,8 +27,8 @@ int main(int argc, char **argv) {
 
   Benchmark bench(argc, argv, getCudaDeviceName());
 
-  int threads = 256;
-  int blocks = static_cast<int>(
+  constexpr int threads = 256;
+  const int blocks = static_cast<int>(
       (static_cast<uint64_t>(bench.count()) + threads - 1) / threads);
 
   constexpr float lhsValue = 1.0f;
