@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(SYCL_CUDA_ROOT "$ENV{HOME}/projects/llvm/build" CACHE PATH
     "Root of an intel/llvm build configured with --cuda")
 set(_sycl_cuda_clangxx "${SYCL_CUDA_ROOT}/bin/clang++")
@@ -62,3 +66,4 @@ endif()
 
 add_subdirectory(src/benchmark)
 add_subdirectory(src/vector_add)
+add_subdirectory(src/reduction)

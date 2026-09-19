@@ -1,21 +1,13 @@
 #include <cuda_runtime.h>
 
 #include <benchmark.hpp>
+#include <cuda_commons.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-
-#define CUDA_CHECK(expr)                                                       \
-  do {                                                                         \
-    cudaError_t err = (expr);                                                  \
-    if (err != cudaSuccess) {                                                  \
-      std::cerr << cudaGetErrorString(err) << "\n";                            \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
 
 __global__ void fill(float4 *data, float value, size_t count) {
   size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -34,20 +26,15 @@ __global__ void vectorAdd(float4 *lhs, float4 *rhs, float4 *out, size_t count) {
 }
 
 int main(int argc, char **argv) {
-  int device = 0;
-  CUDA_CHECK(cudaGetDevice(&device));
-  cudaDeviceProp prop;
-  CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
-
-  Benchmark bench(argc, argv, prop.name);
+  Benchmark bench(argc, argv, getCudaDeviceName());
 
   if (bench.count() % 4 != 0) {
     std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
     std::exit(EXIT_FAILURE);
   }
 
-  int threads = 256;
-  int blocks = static_cast<int>(
+  constexpr int threads = 256;
+  const int blocks = static_cast<int>(
       (static_cast<uint64_t>(bench.count() / 4) + threads - 1) / threads);
 
   constexpr float lhsValue = 1.0f;
