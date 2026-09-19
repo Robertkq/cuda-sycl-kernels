@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
     // Reset the accumulator before each timed run
     q.fill<float>(deviceSum, 0.0f, 1).wait_and_throw();
 
-    auto event = q.submit([&](sycl::handler &h) {
+    auto firstTreeReduction = q.submit([&](sycl::handler &h) {
       sycl::local_accessor<float, 1> sdata(sycl::range<1>(workGroupSize), h);
 
       h.parallel_for(ndRange, [=](sycl::nd_item<1> item) {
@@ -49,11 +49,11 @@ int main(int argc, char **argv) {
         } else {
           sdata[localId] = 0.0f;
         }
-        sycl::group_barrieri(item.get_group());
+        sycl::group_barrier(item.get_group());
 
         for (uint32_t stride = workGroupSize / 2; stride > 0; stride /= 2) {
           if (localId < stride) {
-            sdata[localId] = sdata[localId + stride];
+            sdata[localId] += sdata[localId + stride];
           }
           sycl::group_barrier(item.get_group());
         }
@@ -63,7 +63,36 @@ int main(int argc, char **argv) {
       });
     });
 
-    event.wait_and_throw();
+    auto secondTreeReduction = q.submit([&](sycl::handler &h) {
+      h.depends_on(firstTreeReduction);
+
+      auto ndRange = sycl::nd_range<1>(sycl::range<1>(workGroupSize),
+                                       sycl::range<1>(workGroupSize));
+      sycl::local_accessor<float, 1> sdata(sycl::range<1>(workGroupSize), h);
+      h.parallel_for(ndRange, [=](sycl::nd_item<1> item) {
+        const size_t localId = item.get_local_id(0);
+
+        float partial = 0.0f;
+        for (size_t i = localId; i < numGroups; i += workGroupSize) {
+          partial += deviceOutputVector[i];
+        }
+
+        sdata[localId] = partial;
+        sycl::group_barrier(item.get_group());
+
+        for (uint32_t stride = workGroupSize / 2; stride > 0; stride /= 2) {
+          if (localId < stride) {
+            sdata[localId] += sdata[localId + stride];
+          }
+          sycl::group_barrier(item.get_group());
+        }
+        if (localId == 0) {
+          *deviceSum = sdata[0];
+        }
+      });
+    });
+
+    secondTreeReduction.wait_and_throw();
 
     if (verify) {
       float hostSum = 0.0f;
@@ -75,9 +104,9 @@ int main(int argc, char **argv) {
       }
     }
 
-    return event
+    return secondTreeReduction
                .get_profiling_info<sycl::info::event_profiling::command_end>() -
-           event.get_profiling_info<
+           firstTreeReduction.get_profiling_info<
                sycl::info::event_profiling::command_start>();
   };
 
@@ -85,6 +114,7 @@ int main(int argc, char **argv) {
       (static_cast<uint64_t>(bench.count()) + 1) * sizeof(float);
   bench.run(work, bytesPerIteration);
 
-  sycl::free(deviceVector, q);
+  sycl::free(deviceInputVector, q);
+  sycl::free(deviceOutputVector, q);
   sycl::free(deviceSum, q);
 }
