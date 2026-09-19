@@ -8,6 +8,11 @@ if(CMAKE_CUDA_COMPILER)
 endif()
 
 if(CMAKE_CUDA_COMPILER)
+  add_executable(reduction-optimized-cuda cuda/optimized.cpp)
+  set_source_files_properties(cuda/optimized.cpp PROPERTIES LANGUAGE CUDA)
+  set_target_properties(reduction-optimized-cuda PROPERTIES LINKER_LANGUAGE CUDA)
+  target_link_libraries(reduction-optimized-cuda PUBLIC benchmark)
+  target_include_directories(reduction-optimized-cuda PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 endif()
 
 if(SYCL_CUDA_AVAILABLE)

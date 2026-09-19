@@ -2,7 +2,6 @@
 
 #include <benchmark.hpp>
 
-#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -18,6 +17,8 @@ int main(int argc, char **argv) {
   const uint32_t numGroups = (count + workGroupSize - 1) / workGroupSize;
   const sycl::nd_range<1> ndRange(sycl::range<1>(numGroups * workGroupSize),
                                   sycl::range<1>(workGroupSize));
+  const sycl::nd_range<1> secondRange{sycl::range<1>(workGroupSize),
+                                      sycl::range<1>(workGroupSize)};
 
   float *deviceInputVector = sycl::malloc_device<float>(bench.count(), q);
   float *deviceOutputVector = sycl::malloc_device<float>(numGroups, q);
@@ -66,10 +67,8 @@ int main(int argc, char **argv) {
     auto secondTreeReduction = q.submit([&](sycl::handler &h) {
       h.depends_on(firstTreeReduction);
 
-      auto ndRange = sycl::nd_range<1>(sycl::range<1>(workGroupSize),
-                                       sycl::range<1>(workGroupSize));
       sycl::local_accessor<float, 1> sdata(sycl::range<1>(workGroupSize), h);
-      h.parallel_for(ndRange, [=](sycl::nd_item<1> item) {
+      h.parallel_for(secondRange, [=](sycl::nd_item<1> item) {
         const size_t localId = item.get_local_id(0);
 
         float partial = 0.0f;
@@ -111,7 +110,9 @@ int main(int argc, char **argv) {
   };
 
   const uint64_t bytesPerIteration =
-      (static_cast<uint64_t>(bench.count()) + 1) * sizeof(float);
+      (static_cast<uint64_t>(bench.count()) +
+       2 * static_cast<uint64_t>(numGroups) + 1) *
+      sizeof(float);
   bench.run(work, bytesPerIteration);
 
   sycl::free(deviceInputVector, q);

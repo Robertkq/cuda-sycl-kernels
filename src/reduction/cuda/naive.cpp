@@ -36,12 +36,6 @@ int main(int argc, char **argv) {
   float *deviceSum = nullptr;
   CUDA_CHECK(cudaMalloc(&deviceVector, bench.count() * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&deviceSum, sizeof(float)));
-  if (!deviceVector || !deviceSum) {
-    std::cerr << "Device allocation failed\n";
-    CUDA_CHECK(cudaFree(deviceVector));
-    CUDA_CHECK(cudaFree(deviceSum));
-    std::exit(EXIT_FAILURE);
-  }
 
   constexpr int threads = 256;
   const int blocks = static_cast<int>(
@@ -61,7 +55,7 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaEventRecord(start));
     reduction<<<blocks, threads>>>(deviceVector, deviceSum, bench.count());
     CUDA_CHECK(cudaEventRecord(stop));
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaEventSynchronize(stop));
 
     float milliseconds = 0;
     CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
