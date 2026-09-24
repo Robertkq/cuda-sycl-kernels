@@ -3,16 +3,22 @@
 #include <benchmark.hpp>
 #include <cuda_commons.h>
 
+#include <cmath>
+#include <iostream>
 #include <ranges>
 #include <string>
 #include <vector>
 
-__global__ void transpose(float *input, float *output, int rows, int cols) {
-  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int rowIndex = idx / cols;
-  int colIndex = idx % cols;
-  if (idx < rows * cols)
-    output[colIndex * cols + rowIndex] = input[rowIndex * cols + colIndex];
+__global__ void transpose(const float *input, float *output, uint32_t rows,
+                          uint32_t cols) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const size_t rowIndex = idx / cols;
+  const size_t colIndex = idx % cols;
+  // Reads walk along an input row (coalesced), but neighbouring threads write
+  // to different output rows (strided): this is what the optimized version
+  // fixes. Output is cols x rows, so its row width is rows.
+  if (idx < static_cast<size_t>(rows) * cols)
+    output[colIndex * rows + rowIndex] = input[rowIndex * cols + colIndex];
 }
 
 int main(int argc, char **argv) {

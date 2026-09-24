@@ -2,14 +2,13 @@
 
 #include <benchmark.hpp>
 
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
-#include <math.h>
 #include <ranges>
 #include <string>
 #include <vector>
 
-// Playground only -- not part of the transpose kernel. Just here to make
-// work-item / work-group ids concrete by printing them.
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
   Benchmark bench(argc, argv,
@@ -39,13 +38,17 @@ int main(int argc, char **argv) {
     auto event = q.submit([&](sycl::handler &h) {
       h.parallel_for(sycl::nd_range<1>(totalItems, groupSize),
                      [=](sycl::nd_item<1> item) {
-                       auto localId = item.get_local_id(0);
-                       auto globalId = item.get_global_id(0);
-                       auto rowIndex = globalId / cols;
-                       auto colIndex = globalId % cols;
+                       const size_t globalId = item.get_global_id(0);
+                       const size_t rowIndex = globalId / cols;
+                       const size_t colIndex = globalId % cols;
 
+                       // Reads walk along an input row (coalesced), but
+                       // neighbouring work-items write to different output
+                       // rows (strided): this is what the optimized version
+                       // fixes. Output is cols x rows, so its row width is
+                       // rows.
                        if (globalId < rows * cols)
-                         deviceOutputVector[colIndex * cols + rowIndex] =
+                         deviceOutputVector[colIndex * rows + rowIndex] =
                              deviceInputVector[rowIndex * cols + colIndex];
                      });
     });
@@ -77,4 +80,5 @@ int main(int argc, char **argv) {
   const uint64_t bytesPerIteration = 2 * rows * cols * sizeof(float);
   bench.run(work, bytesPerIteration);
   sycl::free(deviceInputVector, q);
+  sycl::free(deviceOutputVector, q);
 }
