@@ -42,11 +42,7 @@ int main(int argc, char **argv) {
                        const size_t rowIndex = globalId / cols;
                        const size_t colIndex = globalId % cols;
 
-                       // Reads walk along an input row (coalesced), but
-                       // neighbouring work-items write to different output
-                       // rows (strided): this is what the optimized version
-                       // fixes. Output is cols x rows, so its row width is
-                       // rows.
+                       // output is cols x rows, so its row width is rows
                        if (globalId < rows * cols)
                          deviceOutputVector[colIndex * rows + rowIndex] =
                              deviceInputVector[rowIndex * cols + colIndex];

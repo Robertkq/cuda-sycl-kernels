@@ -14,9 +14,7 @@ __global__ void transpose(const float *input, float *output, uint32_t rows,
   const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   const size_t rowIndex = idx / cols;
   const size_t colIndex = idx % cols;
-  // Reads walk along an input row (coalesced), but neighbouring threads write
-  // to different output rows (strided): this is what the optimized version
-  // fixes. Output is cols x rows, so its row width is rows.
+  // output is cols x rows, so its row width is rows
   if (idx < static_cast<size_t>(rows) * cols)
     output[colIndex * rows + rowIndex] = input[rowIndex * cols + colIndex];
 }

@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-// Each work-group handles one tileLength x tileLength tile: one work-item per
-// element.
 constexpr uint32_t tileLength = 16;
 
 int main(int argc, char **argv) {
@@ -28,9 +26,7 @@ int main(int argc, char **argv) {
   const uint32_t rows = sqrt(count);
   const uint32_t cols = sqrt(count);
 
-  // SYCL ranges are {slow, fast}: dim 0 = rows (CUDA y), dim 1 = columns
-  // (CUDA x). The global range counts work-items, so each dimension is
-  // rounded up to a whole number of tiles.
+  // {rows, cols}: dim 1 is the fast index (CUDA x)
   const size_t paddedRows = (rows + tileLength - 1) / tileLength * tileLength;
   const size_t paddedCols = (cols + tileLength - 1) / tileLength * tileLength;
   const sycl::nd_range<2> ndRange(sycl::range<2>(paddedRows, paddedCols),
@@ -50,10 +46,7 @@ int main(int argc, char **argv) {
 
   auto work = [&](bool verify) {
     auto event = q.submit([&](sycl::handler &h) {
-      // +1 column of padding: without it, every element of a tile column sits
-      // in the same local-memory bank, and the column read below would make
-      // work-items queue up (bank conflict). The extra float shifts each row
-      // by one bank.
+      // +1 pad: avoids bank conflicts on the column read below
       sycl::local_accessor<float, 2> tile(
           sycl::range<2>(tileLength, tileLength + 1), h);
 
@@ -65,28 +58,19 @@ int main(int argc, char **argv) {
         const size_t groupRow = item.get_group(0);
         const size_t groupCol = item.get_group(1);
 
-        // Load: neighbouring work-items (localCol) read neighbouring floats of
-        // one input row, so the global read is coalesced.
         if (globalRow < rows && globalCol < cols) {
           tile[localRow][localCol] =
               deviceInputVector[globalRow * cols + globalCol];
         }
 
-        // Every work-item must reach this, so the bounds checks above and
-        // below stay around the memory access instead of returning early.
+        // no early return above: every work-item must reach the barrier
         sycl::group_barrier(item.get_group());
 
-        // Store: tile (groupRow, groupCol) goes to tile (groupCol, groupRow)
-        // of the output. Neighbouring work-items (localCol) write neighbouring
-        // floats of one output row, so the global write is coalesced too; the
-        // column-wise access happens in local memory instead
-        // (tile[localCol][localRow]). Output is cols x rows, so its row width
-        // is rows.
+        // mirrored tile position; output (cols x rows) has row width rows
         const size_t outRow = groupCol * tileLength + localRow;
         const size_t outCol = groupRow * tileLength + localCol;
         if (outRow < cols && outCol < rows) {
-          deviceOutputVector[outRow * rows + outCol] =
-              tile[localCol][localRow];
+          deviceOutputVector[outRow * rows + outCol] = tile[localCol][localRow];
         }
       });
     });
