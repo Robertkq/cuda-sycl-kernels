@@ -35,8 +35,8 @@ int main(int argc, char **argv) {
 
   float *deviceInputVector = nullptr;
   float *deviceOutputVector = nullptr;
-  CUDA_CHECK(cudaMalloc(&deviceInputVector, bench.count() * sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&deviceOutputVector, bench.count() * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&deviceInputVector, count * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&deviceOutputVector, count * sizeof(float)));
 
   constexpr int threads = 256;
   const int blocks = (rows * cols + threads - 1) / threads;

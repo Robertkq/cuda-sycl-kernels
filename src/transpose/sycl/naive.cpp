@@ -30,6 +30,12 @@ int main(int argc, char **argv) {
 
   float *deviceInputVector = sycl::malloc_device<float>(count, q);
   float *deviceOutputVector = sycl::malloc_device<float>(count, q);
+  if (!deviceInputVector || !deviceOutputVector) {
+    std::cerr << "Device allocation failed\n";
+    sycl::free(deviceInputVector, q);
+    sycl::free(deviceOutputVector, q);
+    std::exit(EXIT_FAILURE);
+  }
 
   q.memcpy(deviceInputVector, input.data(), count * sizeof(float))
       .wait_and_throw();
