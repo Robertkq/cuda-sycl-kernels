@@ -2,7 +2,7 @@
 # Configure + build every kernel, then run the SYCL binaries on the CPU with
 # full verification. Meant to run inside the ci/Dockerfile image (no GPU):
 #
-#   podman run --rm -v "$PWD":/src:Z cuda-sycl-kernels-ci ci/build.sh
+#   podman run --rm -v "$PWD":/src:Z ghcr.io/robertkq/cuda-sycl-kernels-ci:latest ci/build.sh
 #
 # CUDA binaries are compiled but never run -- there's no device for them.
 # The numbers the SYCL runs print are CPU timings and mean nothing; the point

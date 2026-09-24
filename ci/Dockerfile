@@ -6,10 +6,19 @@
 # targets get an extra spir64 device image in CI; see SYCL_EXTRA_TARGETS in
 # the top-level CMakeLists.txt). CUDA binaries are build-only.
 #
-#   podman build -t cuda-sycl-kernels-ci -f ci/Dockerfile .
-#   podman run --rm -v "$PWD":/src:Z cuda-sycl-kernels-ci ci/build.sh
+#   podman build -t ghcr.io/robertkq/cuda-sycl-kernels-ci:latest -f ci/Dockerfile .
+#   podman run --rm -v "$PWD":/src:Z ghcr.io/robertkq/cuda-sycl-kernels-ci:latest ci/build.sh
+#
+# CI doesn't build this file; it runs inside the published image. After
+# changing it, rebuild with the command above and push:
+#
+#   podman push ghcr.io/robertkq/cuda-sycl-kernels-ci:latest
 
 FROM registry.fedoraproject.org/fedora:44
+
+# Links the ghcr.io package to the repo, which lets the repo's workflows pull
+# it with their GITHUB_TOKEN.
+LABEL org.opencontainers.image.source=https://github.com/Robertkq/cuda-sycl-kernels
 
 # CUDA major-minor as it appears in NVIDIA's package names (cuda-nvcc-13-4).
 ARG CUDA_PKG_VERSION=13-4
