@@ -11,11 +11,11 @@ Two kernels, and no atomics:
 1. Each block loads 256 elements into shared memory and sums them with a tree reduction. Each step halves the number of active threads, so it takes 8 steps. The block writes out one partial sum.
 2. A single block sums the partial sums the same way.
 
-It's 7.35× faster than naive.
+It's 7.29× faster than naive.
 
 ## Results
 
 | Variant | Time | Bandwidth | % of peak (360 GB/s) |
 |---|---:|---:|---:|
-| Naive | 35.172 ms | 15.3 GB/s | 4% |
-| Optimized | 4.783 ms | 113.1 GB/s | 31% |
+| Naive | 36.641 ms | 14.7 GB/s | 4% |
+| Optimized | 5.026 ms | 107.7 GB/s | 30% |

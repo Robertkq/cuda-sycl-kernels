@@ -11,29 +11,30 @@ int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
   Benchmark bench(argc, argv,
                   q.get_device().get_info<sycl::info::device::name>());
-  constexpr float lhsValue = 1.0f;
-  constexpr float rhsValue = 2.0f;
-  constexpr float expectedValue = lhsValue + rhsValue;
-  float *lhs = sycl::malloc_device<float>(bench.count(), q);
-  float *rhs = sycl::malloc_device<float>(bench.count(), q);
+  constexpr float a = 2.0f;
+  constexpr float xValue = 1.0f;
+  constexpr float yValue = 2.0f;
+  constexpr float expectedValue = a * xValue + yValue;
+  float *x = sycl::malloc_device<float>(bench.count(), q);
+  float *y = sycl::malloc_device<float>(bench.count(), q);
   float *out = sycl::malloc_device<float>(bench.count(), q);
-  if (!lhs || !rhs || !out) {
+  if (!x || !y || !out) {
     std::cerr << "Device allocation failed\n";
-    sycl::free(lhs, q);
-    sycl::free(rhs, q);
+    sycl::free(x, q);
+    sycl::free(y, q);
     sycl::free(out, q);
     std::exit(EXIT_FAILURE);
   }
-  auto eventLhs = q.fill<float>(lhs, lhsValue, bench.count());
-  auto eventRhs = q.fill<float>(rhs, rhsValue, bench.count());
+  auto eventX = q.fill<float>(x, xValue, bench.count());
+  auto eventY = q.fill<float>(y, yValue, bench.count());
 
-  eventLhs.wait_and_throw();
-  eventRhs.wait_and_throw();
+  eventX.wait_and_throw();
+  eventY.wait_and_throw();
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
       h.parallel_for(sycl::range<1>(bench.count()),
-                     [=](sycl::id<1> idx) { out[idx] = lhs[idx] + rhs[idx]; });
+                     [=](sycl::id<1> idx) { out[idx] = a * x[idx] + y[idx]; });
     });
 
     event.wait_and_throw();
@@ -60,7 +61,7 @@ int main(int argc, char **argv) {
       3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
   bench.run(work, bytesPerIteration);
 
-  sycl::free(lhs, q);
-  sycl::free(rhs, q);
+  sycl::free(x, q);
+  sycl::free(y, q);
   sycl::free(out, q);
 }
