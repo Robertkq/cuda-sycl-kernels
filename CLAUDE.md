@@ -37,3 +37,4 @@ Not every kernel needs to be implemented for the project to be usable — treat 
 - When explaining a performance result or suggesting an optimization, tie it to the underlying GPU execution-model reasoning (memory coalescing, occupancy, divergence, bank conflicts) rather than just stating "this is faster."
 - Flag when a CUDA-specific idiom doesn't have a clean SYCL equivalent (or vice versa) rather than silently picking one language's approach — surfacing where the two languages genuinely differ is part of the point.
 - Preserve the existing timing/warm-up methodology in benchmark code unless there's a specific reason to change it.
+- GPU programming pulls in a lot of unfamiliar vocabulary fast. When new CUDA/SYCL API or types show up in code (e.g. `local_accessor`, `group_barrier`, `nd_range`, `atomic_ref`), define each one in a short, plain sentence the first time it's used, so the codebase stays legible without needing outside references.
