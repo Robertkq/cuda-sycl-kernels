@@ -4,3 +4,4 @@ build/
 .json
 .png
 __pycache__/
+build-ci/

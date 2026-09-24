@@ -44,17 +44,28 @@ endif()
 
 if(SYCL_CUDA_AVAILABLE)
   set(SYCL_CUDA_TARGET "nvptx64-nvidia-cuda")
-  message(STATUS "SYCL CUDA backend enabled: ${CMAKE_CXX_COMPILER} (-fsycl-targets=${SYCL_CUDA_TARGET})")
-  get_filename_component(_sycl_cuda_bindir "${CMAKE_CXX_COMPILER}" DIRECTORY)
-  find_program(NVPTX_ARCH_TOOL NAMES nvptx-arch HINTS "${_sycl_cuda_bindir}")
-  if(NVPTX_ARCH_TOOL)
-    execute_process(
-      COMMAND "${NVPTX_ARCH_TOOL}"
-      OUTPUT_VARIABLE SYCL_CUDA_GPU_ARCH
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET)
+  # Extra device images next to the CUDA one, e.g. "spir64" so CI (no GPU)
+  # can run the SYCL binaries on an OpenCL CPU device. Empty by default.
+  set(SYCL_EXTRA_TARGETS "" CACHE STRING
+      "Additional comma-separated -fsycl-targets entries (e.g. spir64)")
+  set(_sycl_targets "${SYCL_CUDA_TARGET}")
+  if(SYCL_EXTRA_TARGETS)
+    string(APPEND _sycl_targets ",${SYCL_EXTRA_TARGETS}")
   endif()
-  set(SYCL_CUDA_FLAGS -fsycl -fsycl-targets=${SYCL_CUDA_TARGET})
+  message(STATUS "SYCL CUDA backend enabled: ${CMAKE_CXX_COMPILER} (-fsycl-targets=${_sycl_targets})")
+  # -DSYCL_CUDA_GPU_ARCH=sm_XX skips detection (needed where there's no GPU).
+  if(NOT SYCL_CUDA_GPU_ARCH)
+    get_filename_component(_sycl_cuda_bindir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    find_program(NVPTX_ARCH_TOOL NAMES nvptx-arch HINTS "${_sycl_cuda_bindir}")
+    if(NVPTX_ARCH_TOOL)
+      execute_process(
+        COMMAND "${NVPTX_ARCH_TOOL}"
+        OUTPUT_VARIABLE SYCL_CUDA_GPU_ARCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    endif()
+  endif()
+  set(SYCL_CUDA_FLAGS -fsycl -fsycl-targets=${_sycl_targets})
   if(SYCL_CUDA_GPU_ARCH)
     list(APPEND SYCL_CUDA_FLAGS -Xsycl-target-backend=${SYCL_CUDA_TARGET} --cuda-gpu-arch=${SYCL_CUDA_GPU_ARCH})
   endif()

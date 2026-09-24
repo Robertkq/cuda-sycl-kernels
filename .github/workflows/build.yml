@@ -1,0 +1,39 @@
+name: build
+
+# Compiles every kernel (CUDA + SYCL) inside the prebuilt CI image, then runs
+# the SYCL binaries on the runner's CPU with full verification. GitHub-hosted
+# runners have no GPU, so CUDA is build-only.
+#
+# The image comes from ci/Dockerfile but isn't built here: it's published to
+# ghcr.io by hand (see the header of ci/Dockerfile), so push a new one after
+# changing the Dockerfile.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/robertkq/cuda-sycl-kernels-ci:latest
+      # Only needed while the package is private; harmless once it's public.
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build kernels and verify SYCL on CPU
+        run: ci/build.sh
