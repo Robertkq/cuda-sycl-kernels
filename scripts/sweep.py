@@ -7,14 +7,14 @@ Discovery is by naming convention, not a hardcoded list, so adding a new
 kernel (reduction-naive-cuda, matrix_transpose-optimized-sycl, ...) needs no
 change here -- it just needs to follow the same <kernel>-<variant>-<lang>
 target naming CMakeLists.txt already uses, and accept -c/--count the same
-way the vector_add binaries do.
+way the saxpy binaries do.
 
 Runs are strictly sequential -- two benchmark binaries sharing a GPU at the
 same time corrupts both runs' timing.
 
 Usage:
   ./scripts/sweep.py                              # sweep everything found
-  ./scripts/sweep.py --kernel vector_add           # only that kernel
+  ./scripts/sweep.py --kernel saxpy                # only that kernel
   ./scripts/sweep.py --dry-run                     # show the plan, run nothing
   ./scripts/sweep.py --sizes 1024,1048576,134217728
 """
@@ -103,7 +103,7 @@ def main():
     binaries = discover_binaries(args.build_dir, args.kernel)
     if not binaries:
         print(f"No benchmark binaries found in {args.build_dir} "
-              f"(expected names like vector_add-naive-cuda)", file=sys.stderr)
+              f"(expected names like saxpy-naive-cuda)", file=sys.stderr)
         return 1
 
     print(f"Discovered {len(binaries)} binaries in {args.build_dir}:", file=sys.stderr)

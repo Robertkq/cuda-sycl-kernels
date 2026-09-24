@@ -7,7 +7,7 @@
 #include <iostream>
 #include <vector>
 
-class VectorAddKernel;
+class SaxpyKernel;
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
@@ -19,33 +19,34 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  constexpr float lhsValue = 1.0f;
-  constexpr float rhsValue = 2.0f;
-  constexpr float expectedValue = lhsValue + rhsValue;
-  float *lhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
-  float *rhs = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  constexpr float a = 2.0f;
+  constexpr float xValue = 1.0f;
+  constexpr float yValue = 2.0f;
+  constexpr float expectedValue = a * xValue + yValue;
+  float *x = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  float *y = sycl::aligned_alloc_device<float>(16, bench.count(), q);
   float *out = sycl::aligned_alloc_device<float>(16, bench.count(), q);
-  if (!lhs || !rhs || !out) {
+  if (!x || !y || !out) {
     std::cerr << "Device allocation failed\n";
-    sycl::free(lhs, q);
-    sycl::free(rhs, q);
+    sycl::free(x, q);
+    sycl::free(y, q);
     sycl::free(out, q);
     std::exit(EXIT_FAILURE);
   }
-  auto eventLhs = q.fill<float>(lhs, lhsValue, bench.count());
-  auto eventRhs = q.fill<float>(rhs, rhsValue, bench.count());
+  auto eventX = q.fill<float>(x, xValue, bench.count());
+  auto eventY = q.fill<float>(y, yValue, bench.count());
 
-  eventLhs.wait_and_throw();
-  eventRhs.wait_and_throw();
+  eventX.wait_and_throw();
+  eventY.wait_and_throw();
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
-      h.parallel_for<VectorAddKernel>(
+      h.parallel_for<SaxpyKernel>(
           sycl::range<1>(bench.count() / 4), [=](sycl::id<1> idx) {
-            auto lhs4 = reinterpret_cast<sycl::vec<float, 4> *>(lhs);
-            auto rhs4 = reinterpret_cast<sycl::vec<float, 4> *>(rhs);
+            auto x4 = reinterpret_cast<sycl::vec<float, 4> *>(x);
+            auto y4 = reinterpret_cast<sycl::vec<float, 4> *>(y);
             auto out4 = reinterpret_cast<sycl::vec<float, 4> *>(out);
-            out4[idx] = lhs4[idx] + rhs4[idx];
+            out4[idx] = a * x4[idx] + y4[idx];
           });
     });
 
@@ -73,7 +74,7 @@ int main(int argc, char **argv) {
       3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
   bench.run(work, bytesPerIteration);
 
-  sycl::free(lhs, q);
-  sycl::free(rhs, q);
+  sycl::free(x, q);
+  sycl::free(y, q);
   sycl::free(out, q);
 }

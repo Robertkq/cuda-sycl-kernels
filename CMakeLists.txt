@@ -76,6 +76,6 @@ else()
 endif()
 
 add_subdirectory(src/benchmark)
-add_subdirectory(src/vector_add)
+add_subdirectory(src/saxpy)
 add_subdirectory(src/reduction)
 add_subdirectory(src/transpose)
