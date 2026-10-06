@@ -9,15 +9,21 @@
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  uint32_t count = 1 << 27;
+  float alpha = 2.0f;
   Benchmark bench(argc, argv,
-                  q.get_device().get_info<sycl::info::device::name>());
-  constexpr float a = 2.0f;
+                  q.get_device().get_info<sycl::info::device::name>(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("-c,--count", count, "Number of elements");
+                    options.add("-a,--alpha", alpha, "Scalar a in a * x + y");
+                  });
+  const float a = alpha;
   constexpr float xValue = 1.0f;
   constexpr float yValue = 2.0f;
-  constexpr float expectedValue = a * xValue + yValue;
-  float *x = sycl::malloc_device<float>(bench.count(), q);
-  float *y = sycl::malloc_device<float>(bench.count(), q);
-  float *out = sycl::malloc_device<float>(bench.count(), q);
+  const float expectedValue = a * xValue + yValue;
+  float *x = sycl::malloc_device<float>(count, q);
+  float *y = sycl::malloc_device<float>(count, q);
+  float *out = sycl::malloc_device<float>(count, q);
   if (!x || !y || !out) {
     std::cerr << "Device allocation failed\n";
     sycl::free(x, q);
@@ -25,24 +31,23 @@ int main(int argc, char **argv) {
     sycl::free(out, q);
     std::exit(EXIT_FAILURE);
   }
-  auto eventX = q.fill<float>(x, xValue, bench.count());
-  auto eventY = q.fill<float>(y, yValue, bench.count());
+  auto eventX = q.fill<float>(x, xValue, count);
+  auto eventY = q.fill<float>(y, yValue, count);
 
   eventX.wait_and_throw();
   eventY.wait_and_throw();
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
-      h.parallel_for(sycl::range<1>(bench.count()),
+      h.parallel_for(sycl::range<1>(count),
                      [=](sycl::id<1> idx) { out[idx] = a * x[idx] + y[idx]; });
     });
 
     event.wait_and_throw();
 
     if (verify) {
-      std::vector<float> hostOut(bench.count());
-      q.memcpy(hostOut.data(), out, bench.count() * sizeof(float))
-          .wait_and_throw();
+      std::vector<float> hostOut(count);
+      q.memcpy(hostOut.data(), out, count * sizeof(float)).wait_and_throw();
       if (!std::all_of(
               hostOut.begin(), hostOut.end(),
               [expectedValue](float v) { return v == expectedValue; })) {
@@ -58,8 +63,10 @@ int main(int argc, char **argv) {
   };
 
   const uint64_t bytesPerIteration =
-      3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
-  bench.run(work, bytesPerIteration);
+      3 * static_cast<uint64_t>(count) * sizeof(float);
+  // one multiply and one add per element
+  const uint64_t flopsPerIteration = 2 * static_cast<uint64_t>(count);
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(x, q);
   sycl::free(y, q);

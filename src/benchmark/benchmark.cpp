@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -13,23 +14,46 @@
 #include <sstream>
 #include <stdexcept>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 struct Benchmark::Impl {
   CLI::App app{"Benchmark"};
   std::vector<uint64_t> records;
   uint32_t iterations = 100;
   uint32_t warmups = 5;
-  uint32_t count = 1 << 27;
   VerifyMode verify = VerifyMode::None;
   TimeUnit timeUnit = TimeUnit::Ns;
   uint64_t bytesPerIteration = 0;
+  uint64_t flopsPerIteration = 0;
   bool noColor = false;
   bool json = false;
   std::string programName;
   std::string hardware;
+  // options added by the kernel, in the order it added them
+  std::vector<std::pair<std::string, CLI::Option *>> kernelOptions;
 };
 
+void BenchmarkOptions::add(const std::string &flags, uint32_t &value,
+                           const std::string &description) {
+  _app.add_option(flags, value, description)->check(CLI::PositiveNumber);
+}
+
+void BenchmarkOptions::add(const std::string &flags, uint64_t &value,
+                           const std::string &description) {
+  _app.add_option(flags, value, description)->check(CLI::PositiveNumber);
+}
+
+void BenchmarkOptions::add(const std::string &flags, float &value,
+                           const std::string &description) {
+  _app.add_option(flags, value, description);
+}
+
 Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
+    : Benchmark(argc, argv, hardware, nullptr) {}
+
+Benchmark::Benchmark(int argc, char **argv, const std::string &hardware,
+                     const std::function<void(BenchmarkOptions &)> &addOptions)
     : _impl(std::make_unique<Impl>()) {
   if (hardware.empty()) {
     throw std::invalid_argument("Benchmark: hardware must not be empty");
@@ -43,10 +67,6 @@ Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
   _impl->app
       .add_option("-w,--warmups", _impl->warmups, "Number of warmup iterations")
       ->default_val(2);
-  _impl->app
-      .add_option("-c,--count", _impl->count, "Number of elements to process")
-      ->default_val(1 << 27)
-      ->check(CLI::PositiveNumber);
   const std::map<std::string, VerifyMode> verifyModeChoices{
       {"None", VerifyMode::None},
       {"Semi", VerifyMode::Semi},
@@ -71,6 +91,18 @@ Benchmark::Benchmark(int argc, char **argv, const std::string &hardware)
   _impl->app.add_flag("--json", _impl->json,
                       "Write a JSON file containing the results");
 
+  if (addOptions) {
+    const auto shared = _impl->app.get_options();
+    BenchmarkOptions options(_impl->app);
+    addOptions(options);
+    for (CLI::Option *option : _impl->app.get_options()) {
+      if (std::find(shared.begin(), shared.end(), option) == shared.end()) {
+        option->capture_default_str();
+        _impl->kernelOptions.emplace_back(option->get_single_name(), option);
+      }
+    }
+  }
+
   try {
     _impl->app.parse(argc, argv);
   } catch (const CLI::ParseError &e) {
@@ -93,9 +125,12 @@ void Benchmark::setBytesPerIteration(uint64_t bytes) {
   _impl->bytesPerIteration = bytes;
 }
 
+void Benchmark::setFlopsPerIteration(uint64_t flops) {
+  _impl->flopsPerIteration = flops;
+}
+
 uint32_t Benchmark::iterations() const { return _impl->iterations; }
 uint32_t Benchmark::warmups() const { return _impl->warmups; }
-uint32_t Benchmark::count() const { return _impl->count; }
 VerifyMode Benchmark::verify() const { return _impl->verify; }
 
 std::string Benchmark::verifyModeToString(VerifyMode mode) const {
@@ -124,6 +159,11 @@ std::string Benchmark::timeUnitToString(TimeUnit unit) const {
 
 double Benchmark::bandwidthGbps(uint64_t ns) const {
   return static_cast<double>(_impl->bytesPerIteration) /
+         static_cast<double>(ns);
+}
+
+double Benchmark::gflops(uint64_t ns) const {
+  return static_cast<double>(_impl->flopsPerIteration) /
          static_cast<double>(ns);
 }
 
@@ -177,9 +217,13 @@ void Benchmark::printInfo() const {
   std::cout << "  Program: " << _impl->programName << "\n";
   std::cout << "  Iterations: " << _impl->iterations << "\n";
   std::cout << "  Warmups: " << _impl->warmups << "\n";
-  std::cout << "  Count: " << _impl->count << "\n";
   std::cout << "  Verify: " << verifyModeToString(_impl->verify) << "\n";
   std::cout << "  Time unit: " << timeUnitToString(_impl->timeUnit) << "\n";
+  for (const auto &[name, option] : _impl->kernelOptions) {
+    std::string label = name;
+    label[0] = static_cast<char>(std::toupper(label[0]));
+    std::cout << "  " << label << ": " << option->as<std::string>() << "\n";
+  }
 }
 
 void Benchmark::printSummary() {
@@ -216,9 +260,25 @@ void Benchmark::printSummary() {
     meanBandwidth /= static_cast<double>(records.size());
   }
 
+  const bool hasFlops = _impl->flopsPerIteration > 0;
+  double maxGflops = 0.0;
+  double minGflops = 0.0;
+  double meanGflops = 0.0;
+  double medianGflops = 0.0;
+  if (hasFlops) {
+    maxGflops = gflops(minTime);
+    minGflops = gflops(maxTime);
+    medianGflops = gflops(medianTime);
+    for (uint64_t t : records) {
+      meanGflops += gflops(t);
+    }
+    meanGflops /= static_cast<double>(records.size());
+  }
+
   if (_impl->json) {
     printJson(minTime, maxTime, avgTime, medianTime, maxBandwidth, minBandwidth,
-              meanBandwidth, medianBandwidth);
+              meanBandwidth, medianBandwidth, maxGflops, minGflops, meanGflops,
+              medianGflops);
     return;
   }
 
@@ -245,16 +305,51 @@ void Benchmark::printSummary() {
     std::cout << color(Color::Red) << "(Worst)\tBandwidth (min):\t"
               << minBandwidth << " GB/s" << color(Color::Reset) << "\n";
   }
+
+  if (hasFlops) {
+    std::cout << "\n";
+    std::cout << std::fixed << std::setprecision(1);
+    std::cout << color(Color::Green) << "(Best)\tCompute (max):\t" << maxGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Yellow) << "()\tCompute (mean):\t" << meanGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Yellow) << "()\tCompute (median):\t"
+              << medianGflops << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Red) << "(Worst)\tCompute (min):\t" << minGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+  }
 }
 
 void Benchmark::printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
                           uint64_t medianTime, double maxBandwidth,
                           double minBandwidth, double meanBandwidth,
-                          double medianBandwidth) const {
+                          double medianBandwidth, double maxGflops,
+                          double minGflops, double meanGflops,
+                          double medianGflops) const {
   nlohmann::json j;
   j["program"] = _impl->programName;
   j["hardware"] = _impl->hardware;
-  j["count"] = _impl->count;
+  nlohmann::json params = nlohmann::json::object();
+  for (const auto &[name, option] : _impl->kernelOptions) {
+    // store numbers as numbers, anything else as text
+    const std::string text = option->as<std::string>();
+    size_t used = 0;
+    try {
+      const long long asInt = std::stoll(text, &used);
+      if (used == text.size()) {
+        params[name] = asInt;
+        continue;
+      }
+      const double asDouble = std::stod(text, &used);
+      if (used == text.size()) {
+        params[name] = asDouble;
+        continue;
+      }
+    } catch (const std::exception &) {
+    }
+    params[name] = text;
+  }
+  j["params"] = params;
   j["iterations"] = _impl->iterations;
   j["warmups"] = _impl->warmups;
   j["verify"] = verifyModeToString(_impl->verify);
@@ -266,6 +361,10 @@ void Benchmark::printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
   j["min_gbps"] = minBandwidth;
   j["mean_gbps"] = meanBandwidth;
   j["median_gbps"] = medianBandwidth;
+  j["max_gflops"] = maxGflops;
+  j["min_gflops"] = minGflops;
+  j["mean_gflops"] = meanGflops;
+  j["median_gflops"] = medianGflops;
 
   const std::string filename = _impl->programName + ".json";
   std::ofstream file(filename);

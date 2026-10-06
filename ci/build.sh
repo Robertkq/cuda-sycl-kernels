@@ -35,15 +35,31 @@ echo "--- SYCL devices"
 # sycl-ls has no rpath (the project binaries do), so point it at the libs.
 LD_LIBRARY_PATH=/opt/sycl/lib /opt/sycl/bin/sycl-ls
 
+# Small problem sizes: the kernels only need to be exercised, not timed.
+# Matrix shapes are non-square and not multiples of the tile sizes, so the
+# edge handling and the rows/cols/inner indexing are checked too.
+size_args() {
+  case "$1" in
+    saxpy-* | reduction-*) echo "--count $((1 << 16))" ;;
+    transpose-*) echo "--rows 300 --cols 200" ;;
+    gemm-*) echo "--rows 100 --cols 70 --inner 130" ;;
+    *) return 1 ;;
+  esac
+}
+
 status=0
 for exe in "$BUILD_DIR"/*-sycl; do
   [[ -x "$exe" ]] || continue
-  echo "--- running $(basename "$exe")"
-  # Small problem size: the kernels only need to be exercised, not timed.
-  # 1<<16 is a perfect square so the transpose kernels get a 256x256 matrix.
-  if ! "$exe" --count $((1 << 16)) --iterations 2 --warmups 1 \
-       --verify Full --no-color; then
-    echo "FAILED: $(basename "$exe")" >&2
+  name=$(basename "$exe")
+  echo "--- running $name"
+  if ! args=$(size_args "$name"); then
+    echo "FAILED: $name has no CI arguments, add it to size_args" >&2
+    status=1
+    continue
+  fi
+  # shellcheck disable=SC2086 # args is a list of separate words
+  if ! "$exe" $args --iterations 2 --warmups 1 --verify Full --no-color; then
+    echo "FAILED: $name" >&2
     status=1
   fi
 done

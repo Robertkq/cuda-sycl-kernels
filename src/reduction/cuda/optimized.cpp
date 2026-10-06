@@ -57,22 +57,26 @@ __global__ void secondTreeReduction(const float *deviceOutputVector,
 
 int main(int argc, char **argv) {
 
-  Benchmark bench(argc, argv, getCudaDeviceName());
+  uint32_t count = 1 << 27;
+  Benchmark bench(argc, argv, getCudaDeviceName(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("-c,--count", count, "Number of elements");
+                  });
 
   const int blocks = static_cast<int>(
-      (static_cast<uint64_t>(bench.count()) + blockSize - 1) / blockSize);
+      (static_cast<uint64_t>(count) + blockSize - 1) / blockSize);
 
   float *deviceInputVector = nullptr;
   float *deviceOutputVector = nullptr;
   float *deviceSum = nullptr;
-  CUDA_CHECK(cudaMalloc(&deviceInputVector, bench.count() * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&deviceInputVector, count * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&deviceOutputVector, blocks * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&deviceSum, sizeof(float)));
 
-  fill<<<blocks, blockSize>>>(deviceInputVector, 1.0f, bench.count());
+  fill<<<blocks, blockSize>>>(deviceInputVector, 1.0f, count);
 
   constexpr float elementValue = 1.0f;
-  const float expectedSum = elementValue * static_cast<float>(bench.count());
+  const float expectedSum = elementValue * static_cast<float>(count);
 
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
@@ -82,8 +86,8 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMemset(deviceSum, 0, sizeof(float)));
 
     CUDA_CHECK(cudaEventRecord(start));
-    firstTreeReduction<<<blocks, blockSize>>>(
-        deviceInputVector, deviceOutputVector, bench.count());
+    firstTreeReduction<<<blocks, blockSize>>>(deviceInputVector,
+                                              deviceOutputVector, count);
     secondTreeReduction<<<1, blockSize>>>(deviceOutputVector, deviceSum,
                                           static_cast<size_t>(blocks));
     CUDA_CHECK(cudaEventRecord(stop));
@@ -106,10 +110,12 @@ int main(int argc, char **argv) {
     return static_cast<uint64_t>(milliseconds * 1e6);
   };
 
-  const uint64_t bytesPerIteration = (static_cast<uint64_t>(bench.count()) +
-                                      2 * static_cast<uint64_t>(blocks) + 1) *
-                                     sizeof(float);
-  bench.run(work, bytesPerIteration);
+  const uint64_t bytesPerIteration =
+      (static_cast<uint64_t>(count) + 2 * static_cast<uint64_t>(blocks) + 1) *
+      sizeof(float);
+  // one add per element
+  const uint64_t flopsPerIteration = count;
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

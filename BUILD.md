@@ -46,7 +46,7 @@ override it if yours lives elsewhere:
     cmake -B build -DSYCL_CUDA_ROOT=/path/to/intel-llvm/build
 
 Each kernel has its own `CMakeLists.txt` under `src/<kernel>/`, building
-`<kernel>_<variant>_cuda` and `<kernel>_<variant>_sycl` into `build/`.
+`<kernel>-<variant>-cuda` and `<kernel>-<variant>-sycl` into `build/`.
 Either target is skipped if its compiler isn't available, so a missing
 executable usually just means that variant isn't implemented yet (see
 `CLAUDE.md`'s kernel backlog), not a build failure.

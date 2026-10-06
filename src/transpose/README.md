@@ -8,4 +8,4 @@ Transposes an N × N float matrix: `output[c][r] = input[r][c]`.
 | Optimized | 157.8 GB/s (6.803 ms) | 157.9 GB/s (6.798 ms) |
 | Speedup | 3.05× | 3.06× |
 
-Measured with N = 11585 (the largest square that fits in 2²⁷ elements). Bandwidth counts one read and one write per element.
+Measured with N = 11585 (`--rows 11585 --cols 11585`; the default is 8192 × 8192). Bandwidth counts one read and one write per element.

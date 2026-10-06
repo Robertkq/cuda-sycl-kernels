@@ -30,20 +30,24 @@ __global__ void reduction(const float *vector, float *sum, size_t count) {
 
 int main(int argc, char **argv) {
 
-  Benchmark bench(argc, argv, getCudaDeviceName());
+  uint32_t count = 1 << 27;
+  Benchmark bench(argc, argv, getCudaDeviceName(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("-c,--count", count, "Number of elements");
+                  });
 
   float *deviceVector = nullptr;
   float *deviceSum = nullptr;
-  CUDA_CHECK(cudaMalloc(&deviceVector, bench.count() * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&deviceVector, count * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&deviceSum, sizeof(float)));
 
   constexpr int threads = 256;
-  const int blocks = static_cast<int>(
-      (static_cast<uint64_t>(bench.count()) + threads - 1) / threads);
-  fill<<<blocks, threads>>>(deviceVector, 1.0f, bench.count());
+  const int blocks =
+      static_cast<int>((static_cast<uint64_t>(count) + threads - 1) / threads);
+  fill<<<blocks, threads>>>(deviceVector, 1.0f, count);
 
   constexpr float elementValue = 1.0f;
-  const float expectedSum = elementValue * static_cast<float>(bench.count());
+  const float expectedSum = elementValue * static_cast<float>(count);
 
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
@@ -53,7 +57,7 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMemset(deviceSum, 0, sizeof(float)));
 
     CUDA_CHECK(cudaEventRecord(start));
-    reduction<<<blocks, threads>>>(deviceVector, deviceSum, bench.count());
+    reduction<<<blocks, threads>>>(deviceVector, deviceSum, count);
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -74,9 +78,10 @@ int main(int argc, char **argv) {
     return static_cast<uint64_t>(milliseconds * 1e6);
   };
 
-  const uint64_t bytesPerIteration =
-      bench.count() * sizeof(float) + sizeof(float);
-  bench.run(work, bytesPerIteration);
+  const uint64_t bytesPerIteration = count * sizeof(float) + sizeof(float);
+  // one add per element
+  const uint64_t flopsPerIteration = count;
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

@@ -27,7 +27,7 @@ Each kernel has `cuda/` and `sycl/` folders containing `naive.cpp` and `optimize
 - Kernel time is measured on the GPU, using CUDA events and SYCL event profiling.
 - Each benchmark does 5 warm-up runs and 50 timed runs, and reports the median. This was done in 5 rounds, and the tables use the median of the five. Results varied by up to 1.2% between rounds.
 - Bandwidth is the number of bytes the kernel has to read and write, divided by its time.
-- All results use the default input size of 2²⁷ elements (set with `--count`).
+- Sizes are set per kernel: `--count` for saxpy and reduction, `--rows`/`--cols` for transpose, and `--rows`/`--cols`/`--inner` for GEMM. The tables above use 2²⁷ elements for saxpy and reduction, and 11585 × 11585 for transpose.
 - Setup: RTX 3060 12 GB, driver 615.71.09, CUDA 13.4, DPC++ 7.2.0 (intel/llvm with the CUDA backend), measured on 2026-09-24.
 
 ## Build and run

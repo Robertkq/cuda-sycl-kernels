@@ -1,154 +1,208 @@
 #!/usr/bin/env python3
-"""Sweep every benchmark binary in the build directory across a range of
-problem sizes and collect the results into one JSON file, nested by
-kernel/variant/lang.
+"""Run a fixed set of benchmark executables across a range of problem sizes
+and collect the results into one JSON file, nested by kernel/variant/lang.
 
-Discovery is by naming convention, not a hardcoded list, so adding a new
-kernel (reduction-naive-cuda, matrix_transpose-optimized-sycl, ...) needs no
-change here -- it just needs to follow the same <kernel>-<variant>-<lang>
-target naming CMakeLists.txt already uses, and accept -c/--count the same
-way the saxpy binaries do.
+The kernels, their executables and their arguments are listed below in
+KERNELS and SHAPES. A listed executable that is missing from the build
+directory is an error. Adding a kernel means adding it to KERNELS.
+
+Each shape defines what a "size" means and which options it turns into:
+  vector  element count       --count S
+  matrix  side length         --rows S --cols S
+  gemm    side length         --rows S --cols S --inner S
 
 Runs are strictly sequential -- two benchmark binaries sharing a GPU at the
 same time corrupts both runs' timing.
 
 Usage:
-  ./scripts/sweep.py                              # sweep everything found
-  ./scripts/sweep.py --kernel saxpy                # only that kernel
-  ./scripts/sweep.py --dry-run                     # show the plan, run nothing
-  ./scripts/sweep.py --sizes 1024,1048576,134217728
+  ./scripts/sweep.py                                # every kernel, default sizes
+  ./scripts/sweep.py --kernel transpose,gemm        # only these kernels
+  ./scripts/sweep.py --kernel saxpy --sizes 1024,1048576
+  ./scripts/sweep.py --dry-run                      # show the plan, run nothing
 """
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-BINARY_RE = re.compile(r"^(?P<kernel>.+)-(?P<variant>naive|optimized)-(?P<lang>cuda|sycl)$")
 
-DEFAULT_SIZES = [1 << e for e in (10, 14, 16, 18, 20, 22, 24, 26, 27)]
-
-
-def discover_binaries(build_dir: Path, kernel_filter: str | None):
-    found = []
-    for path in sorted(build_dir.iterdir()):
-        if not path.is_file() or not path.stat().st_mode & 0o111:
-            continue
-        m = BINARY_RE.match(path.name)
-        if not m:
-            continue
-        info = m.groupdict()
-        if kernel_filter and kernel_filter not in info["kernel"]:
-            continue
-        found.append({"path": path, **info})
-    return found
+def powers_of_two(first, last):
+    return [1 << e for e in range(first, last + 1)]
 
 
-def run_one(binary: dict, size: int, iterations: int, warmups: int, verify: str):
-    cmd = [
-        str(binary["path"]),
-        "-c", str(size),
-        "-i", str(iterations),
-        "-w", str(warmups),
-        "-v", verify,
-        "--json", "--no-color",
-    ]
-    binary_dir = binary["path"].parent
-    json_path = binary_dir / f"{binary['path'].name}.json"
+SHAPES = {
+    "vector": {
+        "size_means": "element count",
+        "args": lambda s: ["--count", str(s)],
+        "sizes": [1 << e for e in (10, 14, 16, 18, 20, 22, 24, 26, 27)],
+        "x_label": "Element count",
+        "metric": "median_gbps",
+        "iterations": 200,
+    },
+    "matrix": {
+        "size_means": "side length",
+        "args": lambda s: ["--rows", str(s), "--cols", str(s)],
+        "sizes": powers_of_two(5, 14),
+        "x_label": "Side length (N x N)",
+        "metric": "median_gbps",
+        "iterations": 200,
+    },
+    "gemm": {
+        "size_means": "side length",
+        "args": lambda s: ["--rows", str(s), "--cols", str(s), "--inner", str(s)],
+        "sizes": powers_of_two(5, 13),
+        "x_label": "Side length (N x N x N)",
+        "metric": "median_gflops",
+        # naive GEMM takes over a second per run at 8192
+        "iterations": 20,
+    },
+}
 
-    proc = subprocess.run(cmd, cwd=binary_dir, capture_output=True, text=True)
+KERNELS = {
+    "saxpy": {
+        "shape": "vector",
+        "executables": ["saxpy-naive-cuda", "saxpy-optimized-cuda",
+                        "saxpy-naive-sycl", "saxpy-optimized-sycl"],
+    },
+    "reduction": {
+        "shape": "vector",
+        "executables": ["reduction-naive-cuda", "reduction-optimized-cuda",
+                        "reduction-naive-sycl", "reduction-optimized-sycl"],
+    },
+    "transpose": {
+        "shape": "matrix",
+        "executables": ["transpose-naive-cuda", "transpose-optimized-cuda",
+                        "transpose-naive-sycl", "transpose-optimized-sycl"],
+    },
+    "gemm": {
+        "shape": "gemm",
+        # no CUDA GEMM yet
+        "executables": ["gemm-naive-sycl", "gemm-optimized-sycl"],
+    },
+}
+
+
+def variant_and_lang(executable):
+    # names are <kernel>-<variant>-<lang>
+    _, variant, lang = executable.rsplit("-", 2)
+    return variant, lang
+
+
+def run_one(path: Path, shape: dict, size: int, iterations: int, warmups: int, verify: str):
+    cmd = [str(path), *shape["args"](size),
+           "-i", str(iterations), "-w", str(warmups), "-v", verify,
+           "--json", "--no-color"]
+    json_path = path.parent / f"{path.name}.json"
+    json_path.unlink(missing_ok=True)
+    proc = subprocess.run(cmd, cwd=path.parent, capture_output=True, text=True)
     if proc.returncode != 0:
-        return None, proc.stderr.strip()
-
+        return None, proc.stderr.strip() or f"exit code {proc.returncode}"
     if not json_path.exists():
         return None, f"expected JSON file not found: {json_path}"
-
     try:
-        data = json.loads(json_path.read_text())
+        return json.loads(json_path.read_text()), None
     except json.JSONDecodeError as e:
         return None, f"invalid JSON in {json_path}: {e}"
-
-    row = {"kernel": binary["kernel"], "variant": binary["variant"],
-           "lang": binary["lang"], "requested_count": size}
-    row.update(data)
-    return row, None
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
-                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--build-dir", type=Path,
-                         default=Path(__file__).resolve().parent.parent / "build",
-                         help="Directory containing the built benchmark binaries")
+                        default=Path(__file__).resolve().parent.parent / "build",
+                        help="Directory containing the built benchmark binaries")
+    parser.add_argument("--kernel", type=str, default=None,
+                        help=f"Comma-separated kernel names (default: all of {', '.join(KERNELS)})")
     parser.add_argument("--sizes", type=str, default=None,
-                         help="Comma-separated element counts (default: powers of two, 2^10..2^27)")
-    parser.add_argument("--iterations", type=int, default=200)
+                        help="Comma-separated sizes, meaning depends on the kernels' shape; "
+                             "only allowed when they mean the same for all selected kernels")
+    parser.add_argument("--iterations", type=int, default=None,
+                        help="Timed runs per point (default: per shape)")
     parser.add_argument("--warmups", type=int, default=5)
     parser.add_argument("--verify", type=str, default="None", choices=["None", "Semi", "Full"],
-                         help="Kept off by default -- verify iterations reallocate and copy the "
-                              "full output buffer, which dominates timing and isn't representative "
-                              "of steady-state kernel performance")
-    parser.add_argument("--kernel", type=str, default=None,
-                         help="Only sweep binaries whose kernel name contains this substring")
+                        help="Kept off by default -- verify iterations reallocate and copy the "
+                             "full output buffer, which dominates timing and isn't representative "
+                             "of steady-state kernel performance")
     parser.add_argument("--output", type=Path, default=Path("sweep_results.json"))
     parser.add_argument("--dry-run", action="store_true",
-                         help="List discovered binaries and the planned runs, execute nothing")
+                        help="List the planned runs, execute nothing")
     args = parser.parse_args()
 
-    sizes = DEFAULT_SIZES if args.sizes is None else [int(s) for s in args.sizes.split(",")]
-
-    binaries = discover_binaries(args.build_dir, args.kernel)
-    if not binaries:
-        print(f"No benchmark binaries found in {args.build_dir} "
-              f"(expected names like saxpy-naive-cuda)", file=sys.stderr)
+    names = list(KERNELS) if args.kernel is None else args.kernel.split(",")
+    unknown = [n for n in names if n not in KERNELS]
+    if unknown:
+        print(f"Unknown kernel(s): {', '.join(unknown)} (known: {', '.join(KERNELS)})",
+              file=sys.stderr)
         return 1
 
-    print(f"Discovered {len(binaries)} binaries in {args.build_dir}:", file=sys.stderr)
-    for b in binaries:
-        print(f"  {b['kernel']:<20} {b['variant']:<10} {b['lang']:<5} {b['path'].name}",
-              file=sys.stderr)
-    print(f"Sizes: {sizes}", file=sys.stderr)
+    meanings = {SHAPES[KERNELS[n]["shape"]]["size_means"] for n in names}
+    if args.sizes is not None and len(meanings) > 1:
+        print(f"--sizes is ambiguous for these kernels: it would mean "
+              f"{' and '.join(sorted(meanings))}", file=sys.stderr)
+        return 1
+    custom_sizes = None if args.sizes is None else [int(s) for s in args.sizes.split(",")]
 
-    total = len(binaries) * len(sizes)
+    missing = [exe for n in names for exe in KERNELS[n]["executables"]
+               if not (args.build_dir / exe).is_file()]
+    if missing:
+        print(f"Missing executables in {args.build_dir}:", file=sys.stderr)
+        for exe in missing:
+            print(f"  {exe}", file=sys.stderr)
+        return 1
+
+    plan = []
+    for n in names:
+        shape = SHAPES[KERNELS[n]["shape"]]
+        sizes = custom_sizes or shape["sizes"]
+        iterations = args.iterations or shape["iterations"]
+        for exe in KERNELS[n]["executables"]:
+            for size in sizes:
+                plan.append((n, exe, size, iterations))
+
+    for n in names:
+        shape_name = KERNELS[n]["shape"]
+        sizes = custom_sizes or SHAPES[shape_name]["sizes"]
+        print(f"{n:<10} {shape_name:<7} {len(KERNELS[n]['executables'])} executables, "
+              f"sizes {sizes}", file=sys.stderr)
     if args.dry_run:
-        print(f"Dry run: would execute {total} benchmark runs.", file=sys.stderr)
+        print(f"Dry run: would execute {len(plan)} benchmark runs.", file=sys.stderr)
         return 0
 
     results = {}
-    done = 0
     ok = 0
-    for binary in binaries:
-        for size in sizes:
-            done += 1
-            label = f"{binary['kernel']}/{binary['variant']}/{binary['lang']} @ {size}"
-            print(f"[{done}/{total}] {label} ...", end=" ", file=sys.stderr, flush=True)
-            start = time.monotonic()
-            row, err = run_one(binary, size, args.iterations, args.warmups, args.verify)
-            elapsed = time.monotonic() - start
-            if row is None:
-                print(f"SKIPPED ({elapsed:.1f}s): {err}", file=sys.stderr)
-                continue
-            print(f"{elapsed:.1f}s, median {row['median_gbps']} GB/s", file=sys.stderr)
+    for done, (n, exe, size, iterations) in enumerate(plan, start=1):
+        shape_name = KERNELS[n]["shape"]
+        shape = SHAPES[shape_name]
+        print(f"[{done}/{len(plan)}] {exe} @ {size} ...", end=" ", file=sys.stderr, flush=True)
+        start = time.monotonic()
+        data, err = run_one(args.build_dir / exe, shape, size, iterations,
+                            args.warmups, args.verify)
+        elapsed = time.monotonic() - start
+        if data is None:
+            print(f"FAILED ({elapsed:.1f}s): {err}", file=sys.stderr)
+            continue
+        print(f"{elapsed:.1f}s, {shape['metric']} {data[shape['metric']]:.1f}", file=sys.stderr)
 
-            branch = (results.setdefault(row["kernel"], {})
-                              .setdefault(row["variant"], {})
-                              .setdefault(row["lang"], {"program": row["program"],
-                                                         "hardware": row["hardware"],
-                                                         "runs": []}))
-            run = {k: v for k, v in row.items()
-                   if k not in ("kernel", "variant", "lang", "program", "hardware")}
-            branch["runs"].append(run)
-            ok += 1
+        variant, lang = variant_and_lang(exe)
+        kernel = results.setdefault(n, {"shape": shape_name, "x_label": shape["x_label"],
+                                        "metric": shape["metric"], "variants": {}})
+        branch = (kernel["variants"].setdefault(variant, {})
+                  .setdefault(lang, {"program": data["program"],
+                                     "hardware": data["hardware"], "runs": []}))
+        run = {k: v for k, v in data.items() if k not in ("program", "hardware")}
+        run["x"] = size
+        branch["runs"].append(run)
+        ok += 1
 
     with args.output.open("w") as f:
         json.dump(results, f, indent=2)
         f.write("\n")
 
-    print(f"\nWrote {ok}/{total} runs to {args.output}", file=sys.stderr)
-    return 0
+    print(f"\nWrote {ok}/{len(plan)} runs to {args.output}", file=sys.stderr)
+    return 0 if ok == len(plan) else 1
 
 
 if __name__ == "__main__":

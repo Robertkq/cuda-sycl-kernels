@@ -38,17 +38,21 @@ __global__ void transpose(const float *input, float *output, uint32_t rows,
 
 int main(int argc, char **argv) {
 
-  Benchmark bench(argc, argv, getCudaDeviceName());
+  uint32_t rows = 8192;
+  uint32_t cols = 8192;
+  Benchmark bench(argc, argv, getCudaDeviceName(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("--rows", rows, "Rows of the input matrix");
+                    options.add("--cols", cols, "Columns of the input matrix");
+                  });
 
-  const uint32_t count = bench.count();
+  const size_t count = static_cast<size_t>(rows) * cols;
 
   const std::vector<float> input = bench.generateWith(count, []() {
     static uint32_t index = 0;
     return index++;
   });
 
-  const uint32_t rows = sqrt(count);
-  const uint32_t cols = sqrt(count);
   const dim3 threads(tileLength, tileLength);
   const dim3 blocks((cols + tileLength - 1) / tileLength,
                     (rows + tileLength - 1) / tileLength);
@@ -58,8 +62,8 @@ int main(int argc, char **argv) {
   CUDA_CHECK(cudaMalloc(&deviceInputVector, count * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&deviceOutputVector, count * sizeof(float)));
 
-  CUDA_CHECK(cudaMemcpy(deviceInputVector, input.data(),
-                        rows * cols * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(deviceInputVector, input.data(), count * sizeof(float),
+                        cudaMemcpyHostToDevice));
 
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
@@ -78,16 +82,18 @@ int main(int argc, char **argv) {
     if (verify) {
       std::vector<float> hostOutputVector(count);
       CUDA_CHECK(cudaMemcpy(hostOutputVector.data(), deviceOutputVector,
-                            rows * cols * sizeof(float),
-                            cudaMemcpyDeviceToHost));
+                            count * sizeof(float), cudaMemcpyDeviceToHost));
+      // input[row][col] must end up at output[col][row]; the output is
+      // cols x rows, so its row width is rows
       for (auto row : std::views::iota(0u, rows)) {
         for (auto col : std::views::iota(0u, cols)) {
-          float expected = col * cols + row;
-          if (hostOutputVector[row * cols + col] != expected) {
-            std::cerr << "Verification failed, expected value at " << row
-                      << ", " << col << "(" << row * cols + col << " ) is "
-                      << expected << " but got "
-                      << hostOutputVector[row * cols + col] << '\n';
+          const float expected = input[static_cast<size_t>(row) * cols + col];
+          const float got =
+              hostOutputVector[static_cast<size_t>(col) * rows + row];
+          if (got != expected) {
+            std::cerr << "Verification failed at input (" << row << ", " << col
+                      << "): expected " << expected << " but got " << got
+                      << '\n';
             std::exit(EXIT_FAILURE);
           }
         }
@@ -97,8 +103,8 @@ int main(int argc, char **argv) {
     return static_cast<uint64_t>(milliseconds * 1e6);
   };
 
-  const uint64_t bytesPerIteration = 2 * rows * cols * sizeof(float);
-  bench.run(work, bytesPerIteration);
+  const uint64_t bytesPerIteration = 2 * count * sizeof(float);
+  bench.run(work, bytesPerIteration, 0);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

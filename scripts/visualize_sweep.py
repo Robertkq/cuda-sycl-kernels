@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Visualize a sweep_results.json (see sweep.py): a bandwidth-vs-count plot
-(one subplot per kernel, one line per variant/lang combination) and a
-Markdown report with a results table per kernel.
+"""Visualize a sweep_results.json (see sweep.py): one subplot per kernel,
+one line per variant/lang combination, against the kernel's size (element
+count for vector kernels, side length for matrix kernels), plus a Markdown
+report with a results table per kernel.
+
+Each kernel is plotted with its own default metric (GB/s for memory-bound
+kernels, GFLOP/s for GEMM) unless --metric overrides it for all.
 
 Usage:
   ./scripts/visualize_sweep.py                          # reads sweep_results.json
@@ -21,15 +25,17 @@ LANG_STYLE = {"cuda": "-", "sycl": "--"}
 LANG_MARKER = {"cuda": "o", "sycl": "s"}
 
 
-def plot(results, metric, output, show):
+def plot(results, metric_override, output, show):
     kernels = sorted(results)
     fig, axes = plt.subplots(len(kernels), 1, figsize=(8, 5 * len(kernels)), squeeze=False)
 
     for ax, kernel in zip(axes[:, 0], kernels):
-        for variant, langs in sorted(results[kernel].items()):
+        info = results[kernel]
+        metric = metric_override or info["metric"]
+        for variant, langs in sorted(info["variants"].items()):
             for lang, branch in sorted(langs.items()):
-                runs = sorted(branch["runs"], key=lambda r: r["count"])
-                x = [r["count"] for r in runs]
+                runs = sorted(branch["runs"], key=lambda r: r["x"])
+                x = [r["x"] for r in runs]
                 y = [r[metric] for r in runs]
                 ax.plot(x, y,
                         color=VARIANT_COLOR.get(variant, "tab:gray"),
@@ -38,7 +44,7 @@ def plot(results, metric, output, show):
                         label=f"{variant}-{lang}")
 
         ax.set_xscale("log", base=2)
-        ax.set_xlabel("Element count")
+        ax.set_xlabel(info["x_label"])
         ax.set_ylabel(metric)
         ax.set_title(kernel)
         ax.grid(True, which="both", alpha=0.3)
@@ -52,32 +58,37 @@ def plot(results, metric, output, show):
         plt.show()
 
 
-def render_markdown(results, metric, plot_path, output):
+def render_markdown(results, metric_override, plot_path, output):
     lines = ["# Sweep Results", "", f"![Sweep plot]({plot_path.name})", ""]
 
     for kernel in sorted(results):
+        info = results[kernel]
+        metric = metric_override or info["metric"]
+        variants = info["variants"]
         lines.append(f"## {kernel}")
         lines.append("")
 
         columns = sorted(f"{variant}-{lang}"
-                          for variant, langs in results[kernel].items()
+                          for variant, langs in variants.items()
                           for lang in langs)
         hardware = {branch["hardware"]
-                    for langs in results[kernel].values()
+                    for langs in variants.values()
                     for branch in langs.values()}
         lines.append(f"Hardware: {', '.join(sorted(hardware))}")
         lines.append("")
+        lines.append(f"Metric: {metric}")
+        lines.append("")
 
-        by_column = {f"{variant}-{lang}": {r["count"]: r[metric] for r in branch["runs"]}
-                     for variant, langs in results[kernel].items()
+        by_column = {f"{variant}-{lang}": {r["x"]: r[metric] for r in branch["runs"]}
+                     for variant, langs in variants.items()
                      for lang, branch in langs.items()}
-        counts = sorted({count for column in by_column.values() for count in column})
+        sizes = sorted({size for column in by_column.values() for size in column})
 
-        lines.append(f"| Count | {' | '.join(columns)} |")
+        lines.append(f"| {info['x_label']} | {' | '.join(columns)} |")
         lines.append(f"|---|{'---|' * len(columns)}")
-        for count in counts:
-            row = [f"{by_column[col].get(count, float('nan')):.2f}" for col in columns]
-            lines.append(f"| {count:,} | {' | '.join(row)} |")
+        for size in sizes:
+            row = [f"{by_column[col].get(size, float('nan')):.2f}" for col in columns]
+            lines.append(f"| {size:,} | {' | '.join(row)} |")
         lines.append("")
 
     output.write_text("\n".join(lines))
@@ -90,9 +101,9 @@ def main():
     parser.add_argument("--input", type=Path, default=Path("sweep_results.json"))
     parser.add_argument("--plot-output", type=Path, default=Path("plot.png"))
     parser.add_argument("--md-output", type=Path, default=Path("report.md"))
-    parser.add_argument("--metric", type=str, default="median_gbps",
-                         help="Which per-run field to report "
-                              "(e.g. median_gbps, mean_gbps, max_gbps)")
+    parser.add_argument("--metric", type=str, default=None,
+                         help="Which per-run field to report for every kernel "
+                              "(e.g. median_gbps, median_gflops); default: per kernel")
     parser.add_argument("--no-show", action="store_true",
                          help="Don't open an interactive plot window, just save the files")
     args = parser.parse_args()
@@ -100,6 +111,11 @@ def main():
     results = json.loads(args.input.read_text())
     if not results:
         print(f"No kernels found in {args.input}", file=sys.stderr)
+        return 1
+    old = [k for k, v in results.items() if "variants" not in v]
+    if old:
+        print(f"{args.input} uses the old sweep format (kernels: {', '.join(old)}); "
+              f"re-run scripts/sweep.py", file=sys.stderr)
         return 1
 
     render_markdown(results, args.metric, args.plot_output, args.md_output)

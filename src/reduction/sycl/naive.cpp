@@ -7,12 +7,16 @@
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  uint32_t count = 1 << 27;
   Benchmark bench(argc, argv,
-                  q.get_device().get_info<sycl::info::device::name>());
+                  q.get_device().get_info<sycl::info::device::name>(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("-c,--count", count, "Number of elements");
+                  });
   constexpr float elementValue = 1.0f;
-  const float expectedSum = elementValue * static_cast<float>(bench.count());
+  const float expectedSum = elementValue * static_cast<float>(count);
 
-  float *deviceVector = sycl::malloc_device<float>(bench.count(), q);
+  float *deviceVector = sycl::malloc_device<float>(count, q);
   float *deviceSum = sycl::malloc_device<float>(1, q);
   if (!deviceVector || !deviceSum) {
     std::cerr << "Device allocation failed\n";
@@ -21,10 +25,9 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  q.fill<float>(deviceVector, elementValue, bench.count()).wait_and_throw();
+  q.fill<float>(deviceVector, elementValue, count).wait_and_throw();
 
   constexpr uint32_t workGroupSize = 256;
-  const uint32_t count = bench.count();
   const uint32_t numGroups = (count + workGroupSize - 1) / workGroupSize;
   const sycl::nd_range<1> ndRange(sycl::range<1>(numGroups * workGroupSize),
                                   sycl::range<1>(workGroupSize));
@@ -83,8 +86,10 @@ int main(int argc, char **argv) {
   };
 
   const uint64_t bytesPerIteration =
-      (static_cast<uint64_t>(bench.count()) + 1) * sizeof(float);
-  bench.run(work, bytesPerIteration);
+      (static_cast<uint64_t>(count) + 1) * sizeof(float);
+  // one add per element
+  const uint64_t flopsPerIteration = count;
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(deviceVector, q);
   sycl::free(deviceSum, q);

@@ -13,18 +13,21 @@ constexpr uint32_t tileLength = 16;
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  uint32_t rows = 8192;
+  uint32_t cols = 8192;
   Benchmark bench(argc, argv,
-                  q.get_device().get_info<sycl::info::device::name>());
+                  q.get_device().get_info<sycl::info::device::name>(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("--rows", rows, "Rows of the input matrix");
+                    options.add("--cols", cols, "Columns of the input matrix");
+                  });
 
-  const uint32_t count = bench.count();
+  const size_t count = static_cast<size_t>(rows) * cols;
 
   const std::vector<float> input = bench.generateWith(count, []() {
     static uint32_t index = 0;
     return index++;
   });
-
-  const uint32_t rows = sqrt(count);
-  const uint32_t cols = sqrt(count);
 
   // {rows, cols}: dim 1 is the fast index (CUDA x)
   const size_t paddedRows = (rows + tileLength - 1) / tileLength * tileLength;
@@ -80,14 +83,17 @@ int main(int argc, char **argv) {
       q.memcpy(hostOutputVector.data(), deviceOutputVector,
                count * sizeof(float))
           .wait_and_throw();
+      // input[row][col] must end up at output[col][row]; the output is
+      // cols x rows, so its row width is rows
       for (auto row : std::views::iota(0u, rows)) {
         for (auto col : std::views::iota(0u, cols)) {
-          float expected = col * cols + row;
-          if (hostOutputVector[row * cols + col] != expected) {
-            std::cerr << "Verification failed, expected value at " << row
-                      << ", " << col << "(" << row * cols + col << " ) is "
-                      << expected << " but got "
-                      << hostOutputVector[row * cols + col] << '\n';
+          const float expected = input[static_cast<size_t>(row) * cols + col];
+          const float got =
+              hostOutputVector[static_cast<size_t>(col) * rows + row];
+          if (got != expected) {
+            std::cerr << "Verification failed at input (" << row << ", " << col
+                      << "): expected " << expected << " but got " << got
+                      << '\n';
             std::exit(EXIT_FAILURE);
           }
         }
@@ -99,8 +105,8 @@ int main(int argc, char **argv) {
                sycl::info::event_profiling::command_start>();
   };
 
-  const uint64_t bytesPerIteration = 2 * rows * cols * sizeof(float);
-  bench.run(work, bytesPerIteration);
+  const uint64_t bytesPerIteration = 2 * count * sizeof(float);
+  bench.run(work, bytesPerIteration, 0);
   sycl::free(deviceInputVector, q);
   sycl::free(deviceOutputVector, q);
 }
