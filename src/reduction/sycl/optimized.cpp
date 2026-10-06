@@ -113,7 +113,9 @@ int main(int argc, char **argv) {
       (static_cast<uint64_t>(bench.count()) +
        2 * static_cast<uint64_t>(numGroups) + 1) *
       sizeof(float);
-  bench.run(work, bytesPerIteration);
+  // one add per element
+  const uint64_t flopsPerIteration = bench.count();
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(deviceInputVector, q);
   sycl::free(deviceOutputVector, q);

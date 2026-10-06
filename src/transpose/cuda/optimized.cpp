@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
   };
 
   const uint64_t bytesPerIteration = 2 * rows * cols * sizeof(float);
-  bench.run(work, bytesPerIteration);
+  bench.run(work, bytesPerIteration, 0);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

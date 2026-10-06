@@ -118,7 +118,10 @@ int main(int argc, char **argv) {
   // read A and B once, write C once (the rounded-up launch grid moves no data)
   const uint64_t bytesPerIteration =
       3 * static_cast<uint64_t>(rows) * cols * sizeof(float);
-  bench.run(work, bytesPerIteration);
+  // one multiply and one add per k, for each of the rows * cols outputs
+  const uint64_t flopsPerIteration =
+      2 * static_cast<uint64_t>(rows) * cols * cols;
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(deviceA, q);
   sycl::free(deviceB, q);

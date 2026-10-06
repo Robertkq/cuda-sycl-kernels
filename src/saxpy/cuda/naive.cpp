@@ -74,7 +74,9 @@ int main(int argc, char **argv) {
   };
   const uint64_t bytesPerIteration =
       3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
-  bench.run(work, bytesPerIteration);
+  // one multiply and one add per element
+  const uint64_t flopsPerIteration = 2 * static_cast<uint64_t>(bench.count());
+  bench.run(work, bytesPerIteration, flopsPerIteration);
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));

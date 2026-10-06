@@ -29,8 +29,10 @@ public:
   VerifyMode verify() const;
 
   template <Benchmarkable Func>
-  void run(Func &&func, uint64_t bytesPerIteration) {
+  void run(Func &&func, uint64_t bytesPerIteration,
+           uint64_t flopsPerIteration) {
     setBytesPerIteration(bytesPerIteration);
+    setFlopsPerIteration(flopsPerIteration);
 
     for (uint32_t i = 0; i < warmups(); ++i) {
       func(false);
@@ -65,16 +67,19 @@ private:
   void printInfo() const;
   void printSummary();
   void printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
-                 uint64_t medianTime, double maxBandwidth,
-                 double minBandwidth, double meanBandwidth,
-                 double medianBandwidth) const;
+                 uint64_t medianTime, double maxBandwidth, double minBandwidth,
+                 double meanBandwidth, double medianBandwidth, double maxGflops,
+                 double minGflops, double meanGflops,
+                 double medianGflops) const;
 
   void addRecord(uint64_t ns);
   std::string verifyModeToString(VerifyMode mode) const;
   std::string timeUnitToString(TimeUnit unit) const;
   bool shouldVerify(uint32_t i) const;
   void setBytesPerIteration(uint64_t bytes);
+  void setFlopsPerIteration(uint64_t flops);
   double bandwidthGbps(uint64_t ns) const;
+  double gflops(uint64_t ns) const;
   std::string formatTime(uint64_t ns) const;
   std::string color(Color c) const;
 

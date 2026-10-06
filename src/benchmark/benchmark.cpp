@@ -23,6 +23,7 @@ struct Benchmark::Impl {
   VerifyMode verify = VerifyMode::None;
   TimeUnit timeUnit = TimeUnit::Ns;
   uint64_t bytesPerIteration = 0;
+  uint64_t flopsPerIteration = 0;
   bool noColor = false;
   bool json = false;
   std::string programName;
@@ -93,6 +94,10 @@ void Benchmark::setBytesPerIteration(uint64_t bytes) {
   _impl->bytesPerIteration = bytes;
 }
 
+void Benchmark::setFlopsPerIteration(uint64_t flops) {
+  _impl->flopsPerIteration = flops;
+}
+
 uint32_t Benchmark::iterations() const { return _impl->iterations; }
 uint32_t Benchmark::warmups() const { return _impl->warmups; }
 uint32_t Benchmark::count() const { return _impl->count; }
@@ -124,6 +129,11 @@ std::string Benchmark::timeUnitToString(TimeUnit unit) const {
 
 double Benchmark::bandwidthGbps(uint64_t ns) const {
   return static_cast<double>(_impl->bytesPerIteration) /
+         static_cast<double>(ns);
+}
+
+double Benchmark::gflops(uint64_t ns) const {
+  return static_cast<double>(_impl->flopsPerIteration) /
          static_cast<double>(ns);
 }
 
@@ -216,9 +226,25 @@ void Benchmark::printSummary() {
     meanBandwidth /= static_cast<double>(records.size());
   }
 
+  const bool hasFlops = _impl->flopsPerIteration > 0;
+  double maxGflops = 0.0;
+  double minGflops = 0.0;
+  double meanGflops = 0.0;
+  double medianGflops = 0.0;
+  if (hasFlops) {
+    maxGflops = gflops(minTime);
+    minGflops = gflops(maxTime);
+    medianGflops = gflops(medianTime);
+    for (uint64_t t : records) {
+      meanGflops += gflops(t);
+    }
+    meanGflops /= static_cast<double>(records.size());
+  }
+
   if (_impl->json) {
     printJson(minTime, maxTime, avgTime, medianTime, maxBandwidth, minBandwidth,
-              meanBandwidth, medianBandwidth);
+              meanBandwidth, medianBandwidth, maxGflops, minGflops, meanGflops,
+              medianGflops);
     return;
   }
 
@@ -245,12 +271,27 @@ void Benchmark::printSummary() {
     std::cout << color(Color::Red) << "(Worst)\tBandwidth (min):\t"
               << minBandwidth << " GB/s" << color(Color::Reset) << "\n";
   }
+
+  if (hasFlops) {
+    std::cout << "\n";
+    std::cout << std::fixed << std::setprecision(1);
+    std::cout << color(Color::Green) << "(Best)\tCompute (max):\t" << maxGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Yellow) << "()\tCompute (mean):\t" << meanGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Yellow) << "()\tCompute (median):\t"
+              << medianGflops << " GFLOP/s" << color(Color::Reset) << "\n";
+    std::cout << color(Color::Red) << "(Worst)\tCompute (min):\t" << minGflops
+              << " GFLOP/s" << color(Color::Reset) << "\n";
+  }
 }
 
 void Benchmark::printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
                           uint64_t medianTime, double maxBandwidth,
                           double minBandwidth, double meanBandwidth,
-                          double medianBandwidth) const {
+                          double medianBandwidth, double maxGflops,
+                          double minGflops, double meanGflops,
+                          double medianGflops) const {
   nlohmann::json j;
   j["program"] = _impl->programName;
   j["hardware"] = _impl->hardware;
@@ -266,6 +307,10 @@ void Benchmark::printJson(uint64_t minTime, uint64_t maxTime, uint64_t avgTime,
   j["min_gbps"] = minBandwidth;
   j["mean_gbps"] = meanBandwidth;
   j["median_gbps"] = medianBandwidth;
+  j["max_gflops"] = maxGflops;
+  j["min_gflops"] = minGflops;
+  j["mean_gflops"] = meanGflops;
+  j["median_gflops"] = medianGflops;
 
   const std::string filename = _impl->programName + ".json";
   std::ofstream file(filename);
