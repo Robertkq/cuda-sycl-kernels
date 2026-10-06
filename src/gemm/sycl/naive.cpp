@@ -13,24 +13,40 @@
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  // C (rows x cols) = A (rows x inner) * B (inner x cols)
+  uint32_t rows = 4096;
+  uint32_t cols = 4096;
+  uint32_t inner = 4096;
   Benchmark bench(argc, argv,
-                  q.get_device().get_info<sycl::info::device::name>());
+                  q.get_device().get_info<sycl::info::device::name>(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("--rows", rows, "Rows of A and C");
+                    options.add("--cols", cols, "Columns of B and C");
+                    options.add("--inner", inner, "Columns of A, rows of B");
+                  });
 
-  const size_t count = bench.count();
+  // values are at most 7, so every sum stays below 49 * inner; it has to stay
+  // below 2^24 for float results to be exact
+  if (49ull * inner >= (1ull << 24)) {
+    std::cerr << "--inner must be below " << (1ull << 24) / 49
+              << " for exact verification\n";
+    std::exit(EXIT_FAILURE);
+  }
+
+  const size_t sizeA = static_cast<size_t>(rows) * inner;
+  const size_t sizeB = static_cast<size_t>(inner) * cols;
+  const size_t sizeC = static_cast<size_t>(rows) * cols;
 
   // small values (0..7) keep every sum below 2^24, so float results are exact;
   // A and B use different patterns so mixing them up fails verification
-  const std::vector<float> hostA = bench.generateWith(count, []() {
+  const std::vector<float> hostA = bench.generateWith(sizeA, []() {
     static uint32_t index = 0;
     return index++ % 8;
   });
-  const std::vector<float> hostB = bench.generateWith(count, []() {
+  const std::vector<float> hostB = bench.generateWith(sizeB, []() {
     static uint32_t index = 0;
     return (index++ * 3) % 8;
   });
-
-  const size_t rows = sqrt(count);
-  const size_t cols = sqrt(count);
 
   const size_t workGroupSize = 16; // 2D so it's actually 256
   const size_t rowsRoundedToWorkGroupSize =
@@ -38,9 +54,9 @@ int main(int argc, char **argv) {
   const size_t colsRoundedToWorkGroupSize =
       (cols + workGroupSize - 1) / workGroupSize * workGroupSize;
 
-  float *deviceA = sycl::malloc_device<float>(count, q);
-  float *deviceB = sycl::malloc_device<float>(count, q);
-  float *deviceC = sycl::malloc_device<float>(count, q);
+  float *deviceA = sycl::malloc_device<float>(sizeA, q);
+  float *deviceB = sycl::malloc_device<float>(sizeB, q);
+  float *deviceC = sycl::malloc_device<float>(sizeC, q);
   if (!deviceA || !deviceB || !deviceC) {
     std::cerr << "Device allocation failed\n";
     sycl::free(deviceA, q);
@@ -49,8 +65,8 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  q.memcpy(deviceA, hostA.data(), count * sizeof(float)).wait_and_throw();
-  q.memcpy(deviceB, hostB.data(), count * sizeof(float)).wait_and_throw();
+  q.memcpy(deviceA, hostA.data(), sizeA * sizeof(float)).wait_and_throw();
+  q.memcpy(deviceB, hostB.data(), sizeB * sizeof(float)).wait_and_throw();
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
@@ -67,9 +83,8 @@ int main(int argc, char **argv) {
 
                        if (globalRow < rows && globalCol < cols) {
                          float sum = 0.0f;
-                         const size_t commonDim = cols; // matrices are square
-                         for (size_t k = 0; k < commonDim; ++k) {
-                           sum += deviceA[globalRow * cols + k] *
+                         for (size_t k = 0; k < inner; ++k) {
+                           sum += deviceA[globalRow * inner + k] *
                                   deviceB[k * cols + globalCol];
                          }
                          const size_t globalOutputIndex =
@@ -80,9 +95,8 @@ int main(int argc, char **argv) {
     });
     event.wait_and_throw();
     if (verify) {
-      std::vector<float> hostC(rows * cols);
-      q.memcpy(hostC.data(), deviceC, rows * cols * sizeof(float))
-          .wait_and_throw();
+      std::vector<float> hostC(sizeC);
+      q.memcpy(hostC.data(), deviceC, sizeC * sizeof(float)).wait_and_throw();
 
       // a full CPU GEMM would take minutes, so check a fixed sample:
       // the four corners (partial edge tiles) plus random positions
@@ -97,8 +111,8 @@ int main(int argc, char **argv) {
 
       for (const auto [row, col] : samples) {
         int64_t expected = 0;
-        for (size_t k = 0; k < cols; ++k) {
-          expected += static_cast<int64_t>(hostA[row * cols + k]) *
+        for (size_t k = 0; k < inner; ++k) {
+          expected += static_cast<int64_t>(hostA[row * inner + k]) *
                       static_cast<int64_t>(hostB[k * cols + col]);
         }
         const float got = hostC[row * cols + col];
@@ -116,11 +130,10 @@ int main(int argc, char **argv) {
   };
 
   // read A and B once, write C once (the rounded-up launch grid moves no data)
-  const uint64_t bytesPerIteration =
-      3 * static_cast<uint64_t>(rows) * cols * sizeof(float);
-  // one multiply and one add per k, for each of the rows * cols outputs
-  const uint64_t flopsPerIteration =
-      2 * static_cast<uint64_t>(rows) * cols * cols;
+  const uint64_t bytesPerIteration = (sizeA + sizeB + sizeC) * sizeof(float);
+  // one multiply and one add per inner step, for each of the rows * cols
+  // outputs
+  const uint64_t flopsPerIteration = 2 * sizeC * inner;
   bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(deviceA, q);

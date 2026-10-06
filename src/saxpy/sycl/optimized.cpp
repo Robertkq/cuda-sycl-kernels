@@ -11,21 +11,27 @@ class SaxpyKernel;
 
 int main(int argc, char **argv) {
   sycl::queue q({sycl::property::queue::enable_profiling()});
+  uint32_t count = 1 << 27;
+  float alpha = 2.0f;
   Benchmark bench(argc, argv,
-                  q.get_device().get_info<sycl::info::device::name>());
+                  q.get_device().get_info<sycl::info::device::name>(),
+                  [&](BenchmarkOptions &options) {
+                    options.add("-c,--count", count, "Number of elements");
+                    options.add("-a,--alpha", alpha, "Scalar a in a * x + y");
+                  });
 
-  if (bench.count() % 4 != 0) {
+  if (count % 4 != 0) {
     std::cerr << "Count must be a multiple of 4 for the vectorized kernel\n";
     std::exit(EXIT_FAILURE);
   }
 
-  constexpr float a = 2.0f;
+  const float a = alpha;
   constexpr float xValue = 1.0f;
   constexpr float yValue = 2.0f;
-  constexpr float expectedValue = a * xValue + yValue;
-  float *x = sycl::aligned_alloc_device<float>(16, bench.count(), q);
-  float *y = sycl::aligned_alloc_device<float>(16, bench.count(), q);
-  float *out = sycl::aligned_alloc_device<float>(16, bench.count(), q);
+  const float expectedValue = a * xValue + yValue;
+  float *x = sycl::aligned_alloc_device<float>(16, count, q);
+  float *y = sycl::aligned_alloc_device<float>(16, count, q);
+  float *out = sycl::aligned_alloc_device<float>(16, count, q);
   if (!x || !y || !out) {
     std::cerr << "Device allocation failed\n";
     sycl::free(x, q);
@@ -33,8 +39,8 @@ int main(int argc, char **argv) {
     sycl::free(out, q);
     std::exit(EXIT_FAILURE);
   }
-  auto eventX = q.fill<float>(x, xValue, bench.count());
-  auto eventY = q.fill<float>(y, yValue, bench.count());
+  auto eventX = q.fill<float>(x, xValue, count);
+  auto eventY = q.fill<float>(y, yValue, count);
 
   eventX.wait_and_throw();
   eventY.wait_and_throw();
@@ -42,7 +48,7 @@ int main(int argc, char **argv) {
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
       h.parallel_for<SaxpyKernel>(
-          sycl::range<1>(bench.count() / 4), [=](sycl::id<1> idx) {
+          sycl::range<1>(count / 4), [=](sycl::id<1> idx) {
             auto x4 = reinterpret_cast<sycl::vec<float, 4> *>(x);
             auto y4 = reinterpret_cast<sycl::vec<float, 4> *>(y);
             auto out4 = reinterpret_cast<sycl::vec<float, 4> *>(out);
@@ -53,9 +59,8 @@ int main(int argc, char **argv) {
     event.wait_and_throw();
 
     if (verify) {
-      std::vector<float> hostOut(bench.count());
-      q.memcpy(hostOut.data(), out, bench.count() * sizeof(float))
-          .wait_and_throw();
+      std::vector<float> hostOut(count);
+      q.memcpy(hostOut.data(), out, count * sizeof(float)).wait_and_throw();
       if (!std::all_of(
               hostOut.begin(), hostOut.end(),
               [expectedValue](float v) { return v == expectedValue; })) {
@@ -71,9 +76,9 @@ int main(int argc, char **argv) {
   };
 
   const uint64_t bytesPerIteration =
-      3 * static_cast<uint64_t>(bench.count()) * sizeof(float);
+      3 * static_cast<uint64_t>(count) * sizeof(float);
   // one multiply and one add per element
-  const uint64_t flopsPerIteration = 2 * static_cast<uint64_t>(bench.count());
+  const uint64_t flopsPerIteration = 2 * static_cast<uint64_t>(count);
   bench.run(work, bytesPerIteration, flopsPerIteration);
 
   sycl::free(x, q);
