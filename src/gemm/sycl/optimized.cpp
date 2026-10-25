@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
     return (index++ * 3) % 8;
   });
 
-  const size_t workGroupSize = 16; // 2D so it's actually 256
+  const size_t workGroupSize = 64; // 2D so it's actually 4096
   const size_t rowsRoundedToWorkGroupSize =
       (rows + workGroupSize - 1) / workGroupSize * workGroupSize;
   const size_t colsRoundedToWorkGroupSize =
@@ -71,15 +71,14 @@ int main(int argc, char **argv) {
 
   auto work = [&](bool verify) -> uint64_t {
     auto event = q.submit([&](sycl::handler &h) {
-      sycl::local_accessor<float, 2> tileA({workGroupSize, workGroupSize + 1},
-                                           h);
+      sycl::local_accessor<float, 2> tileA({workGroupSize, workGroupSize}, h);
       sycl::local_accessor<float, 2> tileB({workGroupSize, workGroupSize}, h);
       const size_t outputsPerWorkItem = 4;
       h.parallel_for(
-          sycl::nd_range<2>(
-              {rowsRoundedToWorkGroupSize,
-               colsRoundedToWorkGroupSize / outputsPerWorkItem},
-              {workGroupSize, workGroupSize / outputsPerWorkItem}),
+          sycl::nd_range<2>({rowsRoundedToWorkGroupSize / outputsPerWorkItem,
+                             colsRoundedToWorkGroupSize / outputsPerWorkItem},
+                            {workGroupSize / outputsPerWorkItem,
+                             workGroupSize / outputsPerWorkItem}),
           [=](sycl::nd_item<2> item) {
             const size_t globalRow = item.get_global_id(0);
             const size_t globalCol = item.get_global_id(1);
@@ -88,43 +87,69 @@ int main(int argc, char **argv) {
             const size_t groupRow = item.get_group(0);
             const size_t groupCol = item.get_group(1);
 
-            float sums[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float sums[4][4] = {};
+
+            const size_t chunkRowA = groupRow * workGroupSize;
+            const size_t chunkColB = groupCol * workGroupSize;
 
             for (size_t chunk = 0; chunk < numChunks; ++chunk) {
-              const size_t aRow = groupRow * workGroupSize + localRow;
-              const size_t bRow = chunk * workGroupSize + localRow;
-              for (size_t i = 0; i < outputsPerWorkItem; ++i) {
-                const size_t tileCol = localCol * outputsPerWorkItem + i;
+              // load chunks in tiles
 
-                const size_t aCol = chunk * workGroupSize + tileCol;
-                const size_t bCol = groupCol * workGroupSize + tileCol;
+              const size_t chunkColA = chunk * workGroupSize;
+              const size_t chunkRowB = chunk * workGroupSize;
 
-                tileA[localRow][tileCol] = (aRow < rows && aCol < inner)
-                                               ? deviceA[aRow * inner + aCol]
-                                               : 0.0f;
-                tileB[localRow][tileCol] = (bRow < inner && bCol < cols)
-                                               ? deviceB[bRow * cols + bCol]
-                                               : 0.0f;
+              // each work-item fills its own 4x4 piece of each 16x16 tile
+              for (size_t r = 0; r < outputsPerWorkItem; ++r) {
+                for (size_t c = 0; c < outputsPerWorkItem; ++c) {
+                  const size_t tileRow = localRow * outputsPerWorkItem + r;
+                  const size_t tileCol = localCol * outputsPerWorkItem + c;
+
+                  const size_t aRow = chunkRowA + tileRow;
+                  const size_t aCol = chunkColA + tileCol;
+                  tileA[tileRow][tileCol] = (aRow < rows && aCol < inner)
+                                                ? deviceA[aRow * inner + aCol]
+                                                : 0.0f;
+
+                  const size_t bRow = chunkRowB + tileRow;
+                  const size_t bCol = chunkColB + tileCol;
+                  tileB[tileRow][tileCol] = (bRow < inner && bCol < cols)
+                                                ? deviceB[bRow * cols + bCol]
+                                                : 0.0f;
+                }
               }
 
               sycl::group_barrier(item.get_group());
               // gemm per 4 element
-
               for (size_t i = 0; i < workGroupSize; ++i) {
-                float rowElement = tileA[localRow][i];
-                for (size_t j = 0; j < outputsPerWorkItem; ++j) {
-                  const size_t tileCol = localCol * outputsPerWorkItem + j;
-                  sums[j] += rowElement * tileB[i][tileCol];
+                // read this work-item's 4 values of column i of tileA
+                float aValues[4];
+                for (size_t m = 0; m < outputsPerWorkItem; ++m) {
+                  aValues[m] = tileA[localRow * outputsPerWorkItem + m][i];
+                }
+
+                // read this work-item's 4 values of row i of tileB
+                float bValues[4];
+                for (size_t n = 0; n < outputsPerWorkItem; ++n) {
+                  bValues[n] = tileB[i][localCol * outputsPerWorkItem + n];
+                }
+
+                // 16 multiply-adds from registers only
+                for (size_t m = 0; m < outputsPerWorkItem; ++m) {
+                  for (size_t n = 0; n < outputsPerWorkItem; ++n) {
+                    sums[m][n] += aValues[m] * bValues[n];
+                  }
                 }
               }
               sycl::group_barrier(item.get_group());
             }
 
-            for (size_t i = 0; i < outputsPerWorkItem; ++i) {
-              const size_t outputRow = globalRow;
-              const size_t outputCol = globalCol * outputsPerWorkItem + i;
-              if (outputRow < rows && outputCol < cols)
-                deviceC[outputRow * cols + outputCol] = sums[i];
+            for (size_t m = 0; m < outputsPerWorkItem; ++m) {
+              for (size_t n = 0; n < outputsPerWorkItem; ++n) {
+                const size_t outputRow = globalRow * outputsPerWorkItem + m;
+                const size_t outputCol = globalCol * outputsPerWorkItem + n;
+                if (outputRow < rows && outputCol < cols)
+                  deviceC[outputRow * cols + outputCol] = sums[m][n];
+              }
             }
           });
     });
