@@ -17,8 +17,9 @@ Median bandwidth in GB/s on an RTX 3060, whose theoretical peak is 360 GB/s:
 - [saxpy](src/saxpy): `a * x + y` over two vectors
 - [reduction](src/reduction): sum of all elements of a vector
 - [transpose](src/transpose): transpose of a square matrix
+- [gemm](src/gemm): matrix multiplication (SYCL only so far)
 
-Planned next: GEMM, histogram, stencil, prefix sum, bitonic sort.
+Planned next: histogram, stencil, prefix sum, bitonic sort.
 
 Each kernel has `cuda/` and `sycl/` folders containing `naive.cpp` and `optimized.cpp`.
 
