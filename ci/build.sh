@@ -43,6 +43,7 @@ size_args() {
     saxpy-* | reduction-*) echo "--count $((1 << 16))" ;;
     transpose-*) echo "--rows 300 --cols 200" ;;
     gemm-*) echo "--rows 100 --cols 70 --inner 130" ;;
+    histogram-*) echo "--count $((1 << 16))" ;;
     *) return 1 ;;
   esac
 }
